@@ -1,0 +1,422 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>YOGI Cockpit — Multi-Timeframe Financial Screener</title>
+    <link rel="stylesheet" href="/static/css/cockpit.css">
+    <!-- Lightweight Charts Standalone CDN -->
+    <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
+</head>
+<body>
+    <!-- App Header -->
+    <header class="app-header">
+        <div class="brand">
+            <span class="logo">🧘</span>
+            <div class="brand-text">
+                <h1>YOGI COCKPIT</h1>
+                <span class="brand-subtitle">Multi-Timeframe Momentum Intelligence</span>
+            </div>
+            <span class="version">v2.0</span>
+        </div>
+        <div class="system-status">
+            <span class="status-indicator ready" id="statusDot"></span>
+            <span id="statusText">System: READY</span>
+            <span class="divider">|</span>
+            <span class="badge badge-demo" id="modeBadge">MODE: OFFLINE</span>
+            <span class="divider">|</span>
+            <span id="universeText">Universe: 0 stocks</span>
+            <span class="divider">|</span>
+            <span id="lastBuiltText">As of: Not built</span>
+            <button id="loadDemoBtn" class="btn btn-accent btn-sm" title="Load verified 5 golden stocks dataset for offline demonstration">
+                <span class="icon">★</span> Demo (5 Stocks)
+            </button>
+            <button id="refreshBtn" class="btn btn-secondary btn-sm" title="Rebuild live dataset from Twelve Data provider">
+                <span class="refresh-icon">↻</span> Rebuild Live (Twelve Data)
+            </button>
+        </div>
+    </header>
+
+    <!-- Main Workspace -->
+    <div class="app-layout">
+        <!-- Sidebar: Unified Screening Workbench -->
+        <aside class="sidebar">
+            <div class="workbench-header">
+                <h2>Screening Workbench</h2>
+                <button id="resetFormBtn" class="btn btn-ghost btn-xs" title="Reset all screening criteria">Reset All</button>
+            </div>
+
+            <!-- UNIVERSE SECTION -->
+            <div class="card workbench-section">
+                <div class="section-title">
+                    <span class="step-num">1</span>
+                    <h3>Universe</h3>
+                </div>
+                <div class="form-row">
+                    <div class="form-group half">
+                        <label for="universeExchange">Exchange:</label>
+                        <select id="universeExchange" class="form-control form-control-sm">
+                            <option value="NSE" selected>NSE</option>
+                            <option value="BSE">BSE</option>
+                            <option value="BOTH">NSE & BSE</option>
+                        </select>
+                    </div>
+                    <div class="form-group half">
+                        <label for="universeSegment">Segment:</label>
+                        <select id="universeSegment" class="form-control form-control-sm">
+                            <option value="ALL" selected>All Equities</option>
+                            <option value="FNO">F&O Only</option>
+                            <option value="CASH">Cash Only</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label for="stockQuickSearch">Quick Find Stock:</label>
+                    <div class="search-box">
+                        <input type="text" id="stockQuickSearch" class="form-control form-control-sm" placeholder="Search symbol (e.g. RELIANCE)...">
+                        <button id="stockSearchBtn" class="btn btn-secondary btn-xs">Find</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- PRESETS & STRATEGY SECTION -->
+            <div class="card workbench-section">
+                <div class="section-title">
+                    <span class="step-num">2</span>
+                    <h3>Strategy & Presets</h3>
+                </div>
+                <div class="form-group">
+                    <label for="presetSelect">Select Preset (Load into Editor):</label>
+                    <select id="presetSelect" class="form-control form-control-sm">
+                        <option value="">-- Choose a Preset to Load --</option>
+                    </select>
+                </div>
+                <div id="presetDesc" class="preset-description"></div>
+                <div class="preset-actions-row">
+                    <button id="loadPresetBtn" class="btn btn-secondary btn-sm half" title="Load selected preset into editor">Load Preset</button>
+                    <button id="saveAsPresetBtn" class="btn btn-outline btn-sm half" title="Save current setup as user preset">Save As...</button>
+                </div>
+            </div>
+
+            <!-- CONDITIONS SECTION -->
+            <div class="card workbench-section">
+                <div class="section-title">
+                    <span class="step-num">3</span>
+                    <h3>Conditions</h3>
+                    <span class="badge badge-counter" id="activeRuleCountBadge">0 rules</span>
+                </div>
+
+                <!-- 1-Click Quick Filter Shortcuts -->
+                <div class="shortcuts-panel">
+                    <div class="shortcut-label">
+                        <span>Quick EMA Uptrend:</span>
+                        <small class="text-muted">(EMA3 ≥ EMA5)</small>
+                    </div>
+                    <div class="ema-toggle-strip" id="emaQuickToggles">
+                        <button class="ema-btn" data-tf="D" title="Toggle Daily EMA Up">D</button>
+                        <button class="ema-btn" data-tf="W" title="Toggle Weekly EMA Up">W</button>
+                        <button class="ema-btn" data-tf="M" title="Toggle Monthly EMA Up">M</button>
+                        <button class="ema-btn" data-tf="Q" title="Toggle Quarterly EMA Up">Q</button>
+                        <button class="ema-btn" data-tf="H" title="Toggle Half-Yearly EMA Up">H</button>
+                        <button class="ema-btn" data-tf="Y" title="Toggle Yearly EMA Up">Y</button>
+                    </div>
+
+                    <div class="shortcut-label mt-2">
+                        <span>Quick Band Position:</span>
+                    </div>
+                    <div class="band-quick-buttons">
+                        <button class="btn btn-xs btn-outline" id="quickBandAboveBtn">+ Above Monthly Band</button>
+                        <button class="btn btn-xs btn-outline" id="quickBandOutsideBtn">+ Outside Band (2+ TF)</button>
+                        <button class="btn btn-xs btn-outline" id="quickReactionTradeBtn">+ Reaction Trade (Below Y, W Up)</button>
+                    </div>
+                </div>
+
+                <!-- Advanced Condition Tree Builder -->
+                <div class="conditions-builder mt-3">
+                    <div class="group-match-bar">
+                        <span>Match:</span>
+                        <select id="rootGroupMatch" class="form-control form-control-sm match-select">
+                            <option value="all" selected>ALL Conditions (AND)</option>
+                            <option value="any">ANY Condition (OR)</option>
+                        </select>
+                    </div>
+
+                    <div id="filterRulesContainer" class="rules-container">
+                        <!-- Dynamic Condition Rows & Subgroups -->
+                    </div>
+
+                    <div class="rule-builder-actions">
+                        <button id="addRuleBtn" class="btn btn-outline btn-sm">+ Add Condition</button>
+                        <button id="addGroupBtn" class="btn btn-ghost btn-sm">+ Add Nested Group</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- RANKING & SELECTION SECTION -->
+            <div class="card workbench-section">
+                <div class="section-title">
+                    <span class="step-num">4</span>
+                    <h3>Ranking & Selection</h3>
+                </div>
+                <div class="form-group">
+                    <label for="rankingMetric">Primary Ranking Metric (ORDER):</label>
+                    <select id="rankingMetric" class="form-control form-control-sm">
+                        <option value="">None (Unranked)</option>
+                    </select>
+                </div>
+                <div class="form-row">
+                    <div class="form-group half">
+                        <label for="rankingOrder">Direction:</label>
+                        <select id="rankingOrder" class="form-control form-control-sm">
+                            <option value="desc" selected>Descending (Highest #1)</option>
+                            <option value="asc">Ascending (Lowest #1)</option>
+                        </select>
+                    </div>
+                    <div class="form-group half">
+                        <label for="screenLimit">Select Top N:</label>
+                        <input type="number" id="screenLimit" class="form-control form-control-sm" value="20" min="1" max="2000">
+                    </div>
+                </div>
+
+                <!-- Quick Selection Pill Buttons -->
+                <div class="quick-limit-pills">
+                    <button class="limit-pill" data-limit="10">Top 10</button>
+                    <button class="limit-pill active" data-limit="20">Top 20</button>
+                    <button class="limit-pill" data-limit="50">Top 50</button>
+                    <button class="limit-pill" data-limit="100">Top 100</button>
+                    <button class="limit-pill" data-limit="0">All</button>
+                </div>
+
+                <!-- Progressive Disclosure: Secondary Ranking & Rank Cutoffs -->
+                <div class="advanced-disclosure mt-2">
+                    <details>
+                        <summary class="disclosure-toggle">Advanced Ranking & Cutoffs</summary>
+                        <div class="disclosure-content pt-2">
+                            <div class="form-group">
+                                <label for="secondaryRankingMetric">Secondary Ranking (Tie-Breaker):</label>
+                                <select id="secondaryRankingMetric" class="form-control form-control-sm">
+                                    <option value="">Default (Symbol Ascending)</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label>Cohort Survival Cutoffs:</label>
+                                <div id="cutoffsContainer" class="cutoffs-container"></div>
+                                <button id="addCutoffBtn" class="btn btn-ghost btn-xs">+ Add Rank Threshold (e.g. Rank &le; 100)</button>
+                            </div>
+                        </div>
+                    </details>
+                </div>
+            </div>
+
+            <!-- DISPLAY COLUMNS SECTION -->
+            <div class="card workbench-section">
+                <div class="section-title">
+                    <span class="step-num">5</span>
+                    <h3>Display Columns</h3>
+                </div>
+                <div class="column-presets-bar">
+                    <button class="col-preset-btn active" data-preset="summary">Default</button>
+                    <button class="col-preset-btn" data-preset="returns">Returns</button>
+                    <button class="col-preset-btn" data-preset="sprint">Speed/Sprint</button>
+                    <button class="col-preset-btn" data-preset="bands">Bands</button>
+                    <button class="col-preset-btn" data-preset="emas">All EMAs</button>
+                    <button class="col-preset-btn" data-preset="strength">Strength (DMI)</button>
+                    <button class="col-preset-btn" data-preset="all">All Available</button>
+                </div>
+                <div class="form-group mt-2">
+                    <input type="text" id="customColumns" class="form-control form-control-sm" placeholder="Summary columns active">
+                </div>
+            </div>
+
+            <!-- PRIMARY ACTIONS BAR -->
+            <div class="workbench-actions">
+                <button id="runScreenBtn" class="btn btn-primary btn-block btn-lg">
+                    <span class="icon">🚀</span> RUN SCREEN
+                </button>
+                <div class="export-btn-group">
+                    <button id="exportXlsxBtn" class="btn btn-secondary btn-sm" title="Export formatted Excel (.xlsx)">📥 XLSX</button>
+                    <button id="exportCsvBtn" class="btn btn-secondary btn-sm" title="Export standard CSV (.csv)">📄 CSV</button>
+                    <button id="exportJsonBtn" class="btn btn-secondary btn-sm" title="Export JSON (.json)">📋 JSON</button>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Content Area: Analysis & Results -->
+        <main class="main-content">
+            <!-- Active Configuration Summary Banner -->
+            <div class="active-config-banner" id="activeConfigBanner">
+                <div class="config-summary-pill">
+                    <span class="pill-label">Active Setup:</span>
+                    <span id="summaryUniverse" class="summary-item">Universe: NSE</span>
+                    <span class="summary-sep">·</span>
+                    <span id="summaryPreset" class="summary-item">Preset: Custom</span>
+                    <span class="summary-sep">·</span>
+                    <span id="summaryConditions" class="summary-item">0 Conditions</span>
+                    <span class="summary-sep">·</span>
+                    <span id="summaryRanking" class="summary-item">Rank: Month Return ↓</span>
+                    <span class="summary-sep">·</span>
+                    <span id="summarySelection" class="summary-item">Top 20</span>
+                </div>
+            </div>
+
+            <!-- Screening Results Grid -->
+            <section class="table-section card">
+                <div class="table-header">
+                    <div class="table-title">
+                        <h2>Screening Results</h2>
+                        <div class="funnel-telemetry" id="funnelTelemetry">
+                            <span class="funnel-step">Universe: <strong id="funnelUniverse">0</strong></span>
+                            <span class="funnel-arrow">→</span>
+                            <span class="funnel-step">Qualified: <strong id="funnelQualified">0</strong></span>
+                            <span class="funnel-arrow">→</span>
+                            <span class="funnel-step active-step">Selected: <strong id="funnelSelected">0</strong></span>
+                        </div>
+                    </div>
+                    <div class="table-actions">
+                        <input type="text" id="tableFilterInput" class="form-control form-control-sm" placeholder="Filter rows in results...">
+                    </div>
+                </div>
+                <div class="table-viewport">
+                    <table id="resultsTable" class="data-table">
+                        <thead>
+                            <tr id="tableHeadRow"></tr>
+                        </thead>
+                        <tbody id="tableBody">
+                            <tr>
+                                <td colspan="16" class="empty-state">
+                                    <div class="empty-guide-card">
+                                        <h3>Welcome to YOGI Cockpit</h3>
+                                        <p>The in-memory market dataset is currently empty. Click below to load the offline 5 golden stocks dataset or rebuild from live market data.</p>
+                                        <div class="empty-guide-buttons">
+                                            <button id="guideDemoBtn" class="btn btn-accent">★ Load Demo Golden Fixtures (5 Stocks)</button>
+                                            <button id="guideLiveBtn" class="btn btn-secondary">↻ Rebuild Live Dataset</button>
+                                        </div>
+                                    </div>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <!-- Stock Detail Slide-Over Drawer -->
+    <aside id="stockDetailDrawer" class="stock-detail-drawer" aria-hidden="true">
+        <div class="drawer-header-row">
+            <div class="drawer-identity-group">
+                <div class="drawer-symbol-title">
+                    <h2 id="activeSymbol" class="drawer-stock-symbol">—</h2>
+                    <span id="activeExchange" class="badge badge-neutral">NSE</span>
+                    <span id="activePrice" class="price-badge">—</span>
+                </div>
+                <div class="drawer-status-badges">
+                    <span id="activeAthDiff" class="badge badge-ath" style="display: none;">—</span>
+                    <span id="activeIcBadge" class="badge badge-ip" style="display: none;">IMPULSE</span>
+                    <span id="activeBandStatus" class="badge badge-above" style="display: none;">—</span>
+                </div>
+            </div>
+            <div class="drawer-header-actions">
+                <button id="drawerCloseBtn" class="drawer-close-btn" title="Close drawer (Esc)" aria-label="Close drawer">✕</button>
+            </div>
+        </div>
+
+        <div id="drawerLoadingOverlay" class="drawer-loading-overlay" style="display: none;">
+            <div class="spinner"></div>
+            <span id="drawerLoadingText">Loading chart &amp; analytical matrix...</span>
+        </div>
+
+        <div id="drawerErrorMsg" class="drawer-error-alert" style="display: none;"></div>
+
+        <div class="drawer-chart-toolbar">
+            <div class="timeframe-buttons" id="tfButtons">
+                <button class="tf-btn active" data-tf="D" title="Daily Bars">D</button>
+                <button class="tf-btn" data-tf="W" title="Weekly Bars">W</button>
+                <button class="tf-btn" data-tf="M" title="Monthly Bars">M</button>
+                <button class="tf-btn" data-tf="Q" title="Quarterly Bars">Q</button>
+                <button class="tf-btn" data-tf="H" title="Half-Yearly Bars">H</button>
+                <button class="tf-btn" data-tf="Y" title="Yearly Bars">Y</button>
+            </div>
+            <div class="band-metrics" id="bandMetrics">
+                <span>Basis: <strong id="valBasis">—</strong></span>
+                <span>Upper: <strong id="valUpper">—</strong></span>
+                <span>Lower: <strong id="valLower">—</strong></span>
+                <span>Width: <strong id="valWidth">—</strong></span>
+            </div>
+            <div class="band-tuner">
+                <label for="bandWidthInput">Band %:</label>
+                <input type="number" id="bandWidthInput" step="0.5" min="0" max="100" placeholder="12.0">
+                <button id="saveBandBtn" class="btn btn-sm btn-outline">Save</button>
+            </div>
+        </div>
+
+        <div id="chartContainer" class="chart-viewport"></div>
+
+        <!-- Live Multi-Timeframe Analysis Matrix -->
+        <div class="live-panel-drawer" id="livePanelDrawer">
+            <div class="drawer-header">
+                <h4>Multi-Timeframe Analysis Matrix (Selected Stock)</h4>
+                <span class="drawer-meta" id="drawerMeta">Click any stock in table to inspect</span>
+            </div>
+            <div class="drawer-table-wrap">
+                <table class="live-matrix-table" id="liveMatrixTable">
+                    <thead>
+                        <tr>
+                            <th>Indicator</th>
+                            <th>Daily (D)</th>
+                            <th>Weekly (W)</th>
+                            <th>Monthly (M)</th>
+                            <th>Quarterly (Q)</th>
+                            <th>Half-Year (H)</th>
+                            <th>Yearly (Y)</th>
+                        </tr>
+                    </thead>
+                    <tbody id="liveMatrixBody">
+                        <tr><td colspan="7" class="empty-matrix">Select a stock in the results table to view live multi-timeframe analytics</td></tr>
+                    </tbody>
+                </table>
+            </div>
+            <div class="drawer-signals-strip" id="drawerSignalsStrip"></div>
+        </div>
+    </aside>
+
+    <!-- User Preset Modal -->
+    <div class="modal-backdrop" id="presetModal" style="display: none;">
+        <div class="modal-card">
+            <div class="modal-header">
+                <h3 id="modalTitle">Save Preset</h3>
+                <button class="modal-close" id="modalCloseBtn">×</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label for="presetNameInput">Preset Name:</label>
+                    <input type="text" id="presetNameInput" class="form-control" placeholder="e.g. My Momentum Setup">
+                </div>
+                <div class="form-group">
+                    <label for="presetDescInput">Description (Optional):</label>
+                    <textarea id="presetDescInput" class="form-control" rows="2" placeholder="Briefly explain the rationale behind this screen"></textarea>
+                </div>
+                <div class="modal-saved-presets mt-3" id="savedPresetsListSection">
+                    <label>Existing User Presets:</label>
+                    <ul class="user-presets-list" id="userPresetsList">
+                        <!-- Populated dynamically -->
+                    </ul>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-ghost" id="modalCancelBtn">Cancel</button>
+                <button class="btn btn-primary" id="modalSavePresetBtn">Save Preset</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Notifications Container -->
+    <div id="toastContainer" class="toast-container"></div>
+
+    <!-- Scripts -->
+    <script src="/static/js/api.js"></script>
+    <script src="/static/js/chart.js"></script>
+    <script src="/static/js/table.js"></script>
+    <script src="/static/js/app.js"></script>
+</body>
+</html>

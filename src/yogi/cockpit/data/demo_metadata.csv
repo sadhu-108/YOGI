@@ -1,0 +1,6 @@
+symbol,exchange,name,isin,sector,grade,is_fno,mcap,instrument_type,listing_status,series_or_group,notes
+MANYAVAR,NSE,Vedant Fashions Ltd,INE825V01034,Apparel,OPP,N,25000.0,EQ,ACTIVE,EQ,Demo Cash stock
+SBCL,NSE,Shivalik Bimetal Controls Ltd,INE386D01027,Engineering,N . I,N,1200.0,EQ,ACTIVE,EQ,Demo Cash stock
+EMIL,NSE,Electronics Mart India Ltd,INE02YR01019,Retail,OPP,N,3400.0,EQ,ACTIVE,EQ,Demo Cash stock
+MOREPENLAB,NSE,Morepen Laboratories Ltd,INE083A01026,Pharma,OPP,N,2800.0,EQ,ACTIVE,EQ,Demo Cash stock
+SHILPAMED,NSE,Shilpa Medicare Ltd,INE590G01017,Pharma,OPP,Y,6500.0,EQ,ACTIVE,EQ,Demo F&O stock

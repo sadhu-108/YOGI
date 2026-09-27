@@ -1,0 +1,183 @@
+"""Cockpit Race Service — Sprint Race multi-stock curve presentation service.
+
+Coordinates candidate leader selection from dataset, historical bar fetching from IDataProvider,
+and mathematical curve calculation via calculate_anchored_curve.
+Decouples presentation-layer multi-line charting from HTTP transport controllers.
+"""
+
+from collections import OrderedDict
+from dataclasses import dataclass
+import logging
+import threading
+import time
+from typing import Any, Callable, Mapping, Optional, Sequence
+import pandas as pd
+
+from yogi.calculation.velocity import calculate_anchored_curve
+from yogi.cockpit.schemas import RaceLineOut, RacePointOut, RaceResponseOut
+from yogi.core.contracts.provider import IDataProvider
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class _RaceCacheEntry:
+    """Bounded cache entry storing calculated race response and timestamp."""
+    response: RaceResponseOut
+    created_at: float
+
+
+class RaceDataService:
+    """Application presentation service building multi-line sprint race curve payloads."""
+
+    def __init__(
+        self,
+        provider: IDataProvider,
+        dataset_provider: Optional[Callable[[], Mapping[str, Mapping[str, Any]]]] = None,
+        max_entries: int = 50,
+        ttl_seconds: Optional[float] = 300.0,
+    ) -> None:
+        self.provider = provider
+        self.dataset_provider = dataset_provider or (lambda: {})
+        self.max_entries: int = max_entries
+        self.ttl_seconds: Optional[float] = ttl_seconds
+        self._cache: OrderedDict[tuple[Any, ...], _RaceCacheEntry] = OrderedDict()
+        self._cache_lock: threading.Lock = threading.Lock()
+
+    def _get_cached(self, key: tuple[Any, ...]) -> Optional[RaceResponseOut]:
+        """Retrieve response from bounded LRU cache if entry is unexpired."""
+        with self._cache_lock:
+            entry = self._cache.get(key)
+            if entry is None:
+                return None
+            if self.ttl_seconds is not None and (time.monotonic() - entry.created_at) > self.ttl_seconds:
+                self._cache.pop(key, None)
+                return None
+            self._cache.move_to_end(key)
+            return entry.response
+
+    def _put_cached(self, key: tuple[Any, ...], response: RaceResponseOut) -> None:
+        """Store response into bounded LRU cache, evicting oldest if capacity reached."""
+        with self._cache_lock:
+            if key in self._cache:
+                self._cache.move_to_end(key)
+            self._cache[key] = _RaceCacheEntry(response=response, created_at=time.monotonic())
+            while len(self._cache) > self.max_entries:
+                self._cache.popitem(last=False)
+
+    def clear_cache(self) -> None:
+        """Clear all cached race curve entries."""
+        with self._cache_lock:
+            self._cache.clear()
+
+    async def get_race(
+        self,
+        symbols: Optional[str] = None,
+        anchor: str = "2021-01-01",
+        top: int = 15,
+        metric: str = "SPA_A21",
+        exchange: str = "NSE",
+    ) -> RaceResponseOut:
+        """Calculate sprint race curves for explicit symbols or auto-picked leaders."""
+        cache_key = (
+            symbols.strip().upper() if symbols else "",
+            anchor,
+            int(top),
+            metric,
+            exchange,
+            getattr(self.provider, "name", ""),
+        )
+        cached = self._get_cached(cache_key)
+        if cached is not None:
+            return cached
+
+        dataset = self.dataset_provider()
+        syms: list[str] = []
+        want = max(1, min(int(top), 25))
+
+        if symbols and symbols.strip():
+            syms = [s.strip().upper() for s in symbols.split(",") if s.strip()]
+            want = len(syms)
+        else:
+            if not dataset:
+                empty_res = RaceResponseOut(anchor=anchor, lines=[], asked=int(top), note="No dataset available")
+                return empty_res
+
+            # Candidate selection from current dataset
+            candidates = []
+            resolved_metric = metric
+            # Check if requested metric exists in dataset
+            all_cols = set()
+            for rec in dataset.values():
+                all_cols.update(rec.keys())
+                break
+
+            if resolved_metric not in all_cols:
+                spa_cols = sorted([c for c in all_cols if c.startswith("SPA_A")])
+                resolved_metric = spa_cols[-1] if spa_cols else "M_CUR"
+
+            for sym, rec in dataset.items():
+                if rec.get("SUSPECT") == "Y":
+                    continue
+                val = rec.get(resolved_metric)
+                if val is not None:
+                    try:
+                        fval = float(val)
+                        if abs(fval) < 3000:
+                            candidates.append((sym, fval))
+                    except (ValueError, TypeError):
+                        continue
+
+            candidates.sort(key=lambda x: x[1], reverse=True)
+            # Pick up to want * 4 candidates (extras allow for stocks with no pre-anchor history)
+            syms = [c[0] for c in candidates[: want * 4]]
+
+        lines: list[RaceLineOut] = []
+        for s in syms:
+            try:
+                bars = self.provider.daily_history(symbol=s, exchange=exchange, years=10)
+                if not bars or len(bars) < 3:
+                    continue
+
+                close_series = pd.Series(
+                    [b.close for b in bars],
+                    index=[b.timestamp for b in bars],
+                )
+                pts_raw = calculate_anchored_curve(close_series, anchor, weekly=True)
+                if len(pts_raw) > 2 and abs(pts_raw[-1]["value"]) < 3000:
+                    rec = dataset.get(s, {})
+                    raw_name = rec.get("name")
+                    label = (
+                        str(raw_name)
+                        if raw_name and str(raw_name).strip().lower() not in ("nan", "none", "") and str(raw_name) != s
+                        else s
+                    )
+                    points = [RacePointOut(time=pt["time"], value=pt["value"]) for pt in pts_raw]
+                    lines.append(
+                        RaceLineOut(
+                            symbol=s,
+                            label=label,
+                            points=points,
+                            final=pts_raw[-1]["value"],
+                        )
+                    )
+                    if len(lines) >= want:
+                        break
+            except Exception as exc:
+                logger.debug("Could not calculate race curve for %s: %s", s, exc)
+                continue
+
+        lines.sort(key=lambda x: x.final, reverse=True)
+        note = (
+            f"showing {len(lines)} of {top} asked - the rest have no price history before {anchor}"
+            if len(lines) < int(top)
+            else ""
+        )
+        response = RaceResponseOut(
+            anchor=anchor,
+            lines=lines,
+            asked=int(top),
+            note=note,
+        )
+        self._put_cached(cache_key, response)
+        return response
