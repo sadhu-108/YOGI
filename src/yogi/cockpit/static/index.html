@@ -31,8 +31,8 @@
             <button id="loadDemoBtn" class="btn btn-accent btn-sm" title="Load verified 5 golden stocks dataset for offline demonstration">
                 <span class="icon">★</span> Demo (5 Stocks)
             </button>
-            <button id="refreshBtn" class="btn btn-secondary btn-sm" title="Rebuild live dataset from Twelve Data provider">
-                <span class="refresh-icon">↻</span> Rebuild Live (Twelve Data)
+            <button id="refreshBtn" class="btn btn-secondary btn-sm" title="Rebuild live dataset from Yahoo Finance">
+                <span class="refresh-icon">↻</span> Rebuild Live (Yahoo Finance)
             </button>
             <button id="bandBackupsBtn" class="btn btn-secondary btn-sm" title="View band snapshots, global audit log, and data management">
                 <span class="icon">⚙</span> Data &amp; Snapshots
@@ -712,7 +712,7 @@
                     <div class="spinner"></div>
                     <span>Computing sprint race trajectories...</span>
                 </div>
-                <div id="raceChartCanvas" class="race-chart-viewport"></div>
+                <canvas id="raceChartCanvas" class="race-chart-viewport"></canvas>
                 <div id="raceLeaderboardContainer" class="race-leaderboard-wrap mt-2"></div>
             </div>
             <div class="modal-footer">

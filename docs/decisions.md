@@ -132,7 +132,18 @@ This file records significant architectural, technical, and design decisions per
 - **Reason**:
   1. *Architectural Integrity*: Maintains the single-pipeline architecture without secondary data paths or duplicated calculation logic.
   2. *Operational Clarity*: Transparently differentiates DEMO mode from LIVE mode in the Cockpit UI (`MODE: LIVE (TWELVE DATA / NSE)` vs `MODE: DEMO (5 STOCKS)`).
-  3. *Fail-Fast Reliability*: Prevents misleading analysis caused by silent demo fallback during live vendor degradation.
+---
 
+## ADR-011: Replacement of LIVE Market Data Provider with Yahoo Finance (yfinance) for Full Universe Screening
 
-
+- **Status**: Adopted (Supersedes ADR-009 & ADR-010 for LIVE feed)
+- **Decision**: Replace Twelve Data with `YFinanceDataProvider` as the primary LIVE market-data provider for full Indian equities universes (NSE & BSE) through the existing `IDataProvider` contract and dynamic `RegistryHub` resolution:
+  1. **Provider Resolution**: The Cockpit routes live requests through `CapabilityRegistry[IDataProvider]` under key `"yfinance"`.
+  2. **Full Live Universe Pass-Through**: Completely eliminate the Twelve Data-specific 1-stock (`INFY`) workaround and 8 credits/min rate limit constraints. When unconstrained LIVE dataset refresh is initiated (`symbols=None`), `PipelineOrchestrator` triggers `provider.universe(config.exchange)`, discovering and passing through the full configured/discovered market universe with NO artificial caps or truncations.
+  3. **Strict Demo Mode Isolation**: DEMO mode remains 100% offline, deterministic, and isolated (5 golden stocks: `MANYAVAR`, `SBCL`, `EMIL`, `MOREPENLAB`, `JUBLINGREA`). Live provider failures bubble up directly as explicit errors (HTTP 500) and NEVER silently fall back to `DemoDataProvider`. Switching between Demo and Live clears presentation caches and atomically replaces the dataset pointer.
+  4. **Strict Test Isolation**: All offline unit and integration tests inject deterministic mock providers or pass explicit symbols to prevent unintended external internet requests to Yahoo Finance servers during automated CI/test execution.
+  5. **Zero Core Invariant Changes**: No modifications to analytical calculations, timeframe synthesis, qualification rules, ranking, selection, or Core contracts.
+- **Reason**:
+  1. *Complete Market Coverage*: Yahoo Finance provides free, unthrottled historical coverage for Indian equities without the 8 credits/min rate limits or paid-plan gating inherent to Twelve Data free tier.
+  2. *Architectural Modularity*: Confirms YOGI's founding principle ("Stable Core • Replaceable Modules • Contract-Based Connections") by swapping vendors purely through the `IDataProvider` adapter interface without touching Core math or pipeline logic.
+  3. *Zero Vendor Credential Burden*: Enables immediate out-of-the-box live screening and chart viewing without requiring user API keys or subscription setups.

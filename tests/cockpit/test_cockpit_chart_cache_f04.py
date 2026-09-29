@@ -234,7 +234,7 @@ def test_f04_demo_live_provider_isolation():
     assert service.cache_size == 1
 
     # Switch provider instance / name on the service
-    live_provider = TrackingMockProvider("twelve_data")
+    live_provider = TrackingMockProvider("yfinance")
     live_provider.bars_by_symbol["STOCK"] = create_sample_bars(10, 999.0)
     service.provider = live_provider
 

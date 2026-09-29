@@ -53,14 +53,13 @@
 - Verified by `tests/core/test_orchestration.py` (17/17 tests passing).
 
 ### Step 6: Data Providers & Normalization (`src/yogi/data/`) (FROZEN)
-- `normalization/bars.py`: Pure normalizers converting raw vendor payloads into frozen `MarketBar` and `TickData` DTOs (including `normalize_twelve_data_bars` and `normalize_twelve_data_batch`).
+- `normalization/bars.py`: Pure normalizers converting raw vendor payloads into frozen `MarketBar` and `TickData` DTOs (including `normalize_yfinance_bars`, `normalize_yfinance_batch`, `normalize_zerodha_history`, `normalize_zerodha_tick`).
 - `normalization/universe.py`: Pure normalizers discovering NSE equity symbols (strictly filtering `SERIES == 'EQ'`) and BSE scrip codes with offline fallbacks.
 - `providers/demo.py`: `DemoDataProvider` implementing `IDataProvider` relocated from `cockpit/` to `src/yogi/data/providers/demo.py` per architectural correction YOGI-F02, providing deterministic offline fixtures for the 5 golden stocks and mock universe.
-- `providers/yfinance.py`: `YFinanceDataProvider` implementing `IDataProvider` with daily/intraday history, universe discovery, health checks, and offline injection.
+- `providers/yfinance.py`: `YFinanceDataProvider` implementing `IDataProvider` as the primary LIVE provider for full Indian equities universes (NSE & BSE) without API key requirements or free-tier rate limits ([ADR-011](decisions.md#adr-011-replacement-of-live-market-data-provider-with-yahoo-finance-yfinance-for-full-universe-screening)), with daily/intraday history, full universe discovery, health checks, and offline test injection.
 - `providers/zerodha.py`: `ZerodhaDataProvider` implementing `IDataProvider` with Kite Connect 1-year historical chunking, KiteTicker live ticks, and offline test injection.
-- `providers/twelve_data.py`: `TwelveDataProvider` implementing `IDataProvider` using Twelve Data REST API (`/time_series`, `/price`, `/stocks`), batching with configurable chunk size, symbol/exchange translation (`twelve_data_symbol`), secret masking, and offline test injection ([ADR-009](decisions.md#adr-009-twelve-data-provider-adapter-integration)). Configured via `TWELVE_DATA_API_KEY` (or `TWELVEDATA_API_KEY`) environment variable or direct instantiation. Registered in `RegistryHub.providers` under `"twelvedata"` / `"twelve_data"`. Free-tier characteristics: 8 credits/min limit; batch requests consume 1 credit per symbol; benchmark equity `INFY` serves as health check.
 - `providers/exceptions.py`: `DataProviderError`, `DataProviderAuthenticationError`, and `DataProviderRateLimitError` defining explicit failure boundaries.
-- Verified by `tests/data/test_normalization.py` (11/11), `tests/data/test_yfinance_provider.py` (18/18), `tests/data/test_zerodha_provider.py` (18/18), and `tests/data/test_twelve_data_provider.py` (33/33 tests passing, including live smoke test) (80/80 tests passing).
+- Verified by `tests/data/test_normalization.py` (11/11), `tests/data/test_yfinance_provider.py` (18/18), `tests/data/test_zerodha_provider.py` (18/18), `tests/data/test_batch_5_classification.py` (19/19), and `tests/data/test_batch_5_fno.py` (6/6) (72/72 tests passing).
 
 ### Step 7: Timeframe Engine (`src/yogi/timeframe/`) (FROZEN)
 - `engine.py`: Pure multi-timeframe candle synthesis (`resample_bars`, `build_market_context`, `TimeframeEngine`, `TIMEFRAME_RULES`) ([ADR-007](decisions.md#adr-007-timeframe-engine-bounded-responsibility)).
@@ -244,22 +243,25 @@
     - The UX may be redesigned in future phases without requiring changes to the frozen Core engine, contracts, calculations, or pipeline orchestration.
 - Verified by:
   - `tests/cockpit/test_cockpit_state.py` (7/7 tests passing).
-  - `tests/cockpit/test_cockpit_charting.py` (8/8 tests passing).
+  - `tests/cockpit/test_cockpit_charting.py` (13/13 tests passing).
   - `tests/cockpit/test_cockpit_chart_cache_f04.py` (9/9 tests passing).
-  - `tests/cockpit/test_cockpit_panel_f05.py` (15/15 tests passing).
-  - `tests/cockpit/test_cockpit_demo.py` (5/5 tests passing).
-  - `tests/cockpit/test_cockpit_api.py` (23/23 tests passing).
-  - `tests/cockpit/test_cockpit_twelve_data.py` (4/4 tests passing, verifying provider selection, demo/live isolation, error propagation without silent demo fallback, and end-to-end live screening/charting).
-  - `tests/cockpit/test_race.py` (6/6 tests passing, verifying explicit and auto-picked sprint race curves, candidate filtering, and HTTP /api/race endpoint).
-  - `tests/cockpit/test_batch_3a_technical_series.py` (16/16 tests passing).
+  - `tests/cockpit/test_cockpit_panel_f05.py` (11/11 tests passing).
+  - `tests/cockpit/test_cockpit_demo.py` (6/6 tests passing).
+  - `tests/cockpit/test_cockpit_api.py` (25/25 tests passing).
+  - `tests/cockpit/test_cockpit_yfinance.py` (4/4 tests passing, 1 opt-in skipped, verifying provider selection, demo/live isolation, full universe pass-through without artificial caps, and end-to-end screening/charting).
+  - `tests/cockpit/test_race.py` (6/6 tests passing).
+  - `tests/cockpit/test_batch_3a_technical_series.py` (11/11 tests passing).
   - `tests/cockpit/test_batch_3b_indicators.py` (10/10 tests passing).
   - `tests/cockpit/test_batch_3c_oscillators.py` (10/10 tests passing).
   - `tests/cockpit/test_batch_3d_custom_curves.py` (8/8 tests passing).
+  - `tests/cockpit/test_batch_4_band_api.py` (10/10 tests passing).
+  - `tests/cockpit/test_batch_5_meta_api.py` (8/8 tests passing).
   - `tests/cockpit/test_cockpit_stock_drawer.py` (12/12 tests passing).
   - `tests/cockpit/test_batch_u1_stock_detail.py` (11/11 tests passing).
   - `tests/cockpit/test_batch_u2_screener.py` (12/12 tests passing).
-  - `tests/cockpit/test_batch_u3_power_controls.py` (15/15 tests passing).
-  - Total Cockpit test suite: 188/188 tests passing (100%).
+  - `tests/cockpit/test_batch_u3_power_controls.py` (16/16 tests passing).
+  - `tests/cockpit/test_batch_u4_features.py` (14/14 tests passing).
+  - Total Cockpit test suite: 203/204 tests passing (1 skipped, 100% pass rate).
 
 ---
 
@@ -396,7 +398,7 @@ The YOGI MVP backend and analytical engine are considered **COMPLETE and FROZEN*
 
 1. **Backend Engine Frozen**:
    - All Core contracts, pipeline orchestration, data providers (Yahoo, Zerodha, Twelve Data, Demo), timeframe synthesis, analytical calculations (Bands, Candles, Impulse, Trend, Velocity), screening stages (QUALIFY → ORDER → SHOW → LIMIT → RESULTS), and results formatters are complete, verified, and frozen.
-   - All architectural findings (YOGI-F01 through YOGI-F06) are fully resolved and covered by 557 passing tests (100% pass rate).
+   - All architectural findings (YOGI-F01 through YOGI-F06) are fully resolved and covered by 577 passing tests (1 skipped, 100% pass rate).
    - No new analytical capabilities or mathematical calculations are being developed now.
    - No backend or Core architectural redesign is planned before mentor review.
 

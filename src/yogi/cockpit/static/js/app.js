@@ -373,14 +373,14 @@ document.addEventListener('DOMContentLoaded', async () => {
                     modeBadge.textContent = 'MODE: DEMO (5 STOCKS)';
                 } else if (status.universe_count > 0) {
                     modeBadge.className = 'badge badge-live';
-                    const providerLabel = (status.provider === 'twelvedata' || status.provider === 'twelve_data')
-                        ? 'TWELVE DATA'
+                    const providerLabel = (status.provider === 'yfinance')
+                        ? 'YAHOO FINANCE'
                         : (status.provider || 'LIVE').toUpperCase();
                     modeBadge.textContent = `MODE: LIVE (${providerLabel} / ${status.exchange || 'NSE'})`;
                 } else {
                     modeBadge.className = 'badge';
-                    const providerLabel = (status.provider === 'twelvedata' || status.provider === 'twelve_data')
-                        ? 'TWELVE DATA'
+                    const providerLabel = (status.provider === 'yfinance')
+                        ? 'YAHOO FINANCE'
                         : (status.provider || 'LIVE').toUpperCase();
                     modeBadge.textContent = `MODE: ${providerLabel} (EMPTY)`;
                 }
@@ -415,11 +415,11 @@ document.addEventListener('DOMContentLoaded', async () => {
         const btn = document.getElementById('refreshBtn');
         if (btn) btn.disabled = true;
         try {
-            showToast('Rebuilding live market dataset from Twelve Data...', 'info');
-            await API.refreshDataset(null, null, 'twelvedata');
+            showToast('Rebuilding live market dataset from Yahoo Finance...', 'info');
+            await API.refreshDataset(null, null, 'yfinance');
             await updateStatus();
             await runScreen();
-            showToast('Live Twelve Data dataset refreshed successfully!', 'success');
+            showToast('Live Yahoo Finance dataset refreshed successfully!', 'success');
         } catch (err) {
             showToast(`Failed to rebuild live dataset: ${err.message}`, 'error');
         } finally {

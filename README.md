@@ -52,7 +52,7 @@ YOGI/
 │       │   └── orchestration/  # PipelineOrchestrator coordination
 │       │
 │       ├── data/               # Ingestion & Market Context
-│       │   ├── providers/      # Adapters (Demo, Twelve Data, Yahoo, Zerodha)
+│       │   ├── providers/      # Adapters (Demo, Yahoo Finance, Zerodha)
 │       │   ├── normalization/  # Instrument classification, F&O universe, bar sanitization
 │       │   └── sources/        # Resilient external data sources (NSE official bhavcopy)
 │       │
@@ -83,11 +83,11 @@ YOGI/
 │           ├── services/       # ChartDataService (19+ series), RaceVisualizerService
 │           └── static/         # HTML5 single-page workbench, JS, CSS
 │
-└── tests/                      # 557 automated unit, integration, and regression tests
+└── tests/                      # 578 automated unit, integration, and regression tests
     ├── calculation/            # Mathematical validation across all 5 pillars (116 tests)
-    ├── cockpit/                # REST API, charting, drawer, and service tests (150 tests)
+    ├── cockpit/                # REST API, charting, drawer, and service tests (204 tests)
     ├── core/                   # Contracts, registry, configuration, orchestration (51 tests)
-    ├── data/                   # Providers, classification, F&O normalization (105 tests)
+    ├── data/                   # Providers, classification, F&O normalization (72 tests)
     ├── filter/                 # FilterEngine qualification tests (13 tests)
     ├── pipeline/               # End-to-end pipeline execution tests (13 tests)
     ├── ranking/                # RankingEngine ordering tests (8 tests)
@@ -103,7 +103,7 @@ YOGI/
 
 ## 3. Current Status: MVP Backend Complete & Frozen
 
-- **MVP Backend Engine**: **COMPLETE & FROZEN**. Steps 1 through 11 plus Batches 1–5 are completed, source-verified, and regression-tested (**557 tests passing**, 100% pass rate).
+- **MVP Backend Engine**: **COMPLETE & FROZEN**. Steps 1 through 11 plus Batches 1–5 and U1–U4 are completed, source-verified, and regression-tested (**577 tests passing**, 1 skipped, 100% pass rate).
 - **Architectural Findings**: Findings **YOGI-F01 through YOGI-F06** are fully resolved.
 - **Phase Boundary**: The system is entering a **Mentor Review & UX Definition** phase where the mentor will determine how existing analytical metrics, filters, rankings, options, and strategies will ultimately be presented to users.
 - **Presentation Layer**: The current Cockpit UI in `src/yogi/cockpit/` serves as a functional, verified prototype workbench. Its presentation model is subject to mentor review and may be redesigned without requiring changes to the frozen Core engine.
@@ -142,18 +142,10 @@ pip install -r requirements.txt
 pip install -e ".[dev]"
 ```
 
-### 3. Environment Variables (Optional / Live Providers)
+### 3. Provider Configuration (Live Providers)
 
 - **Demo Provider**: Zero configuration required. Operates 100% offline using verified golden datasets.
-- **Twelve Data Provider**: Required for live REST market data. Set your API key:
-  ```powershell
-  # Windows PowerShell
-  $env:TWELVE_DATA_API_KEY = "your_twelve_data_api_key"
-  ```
-  ```bash
-  # Linux / macOS
-  export TWELVE_DATA_API_KEY="your_twelve_data_api_key"
-  ```
+- **Yahoo Finance Provider (`yfinance`)**: Default live market-data provider for Indian equities (NSE & BSE). Free and operates without API keys or rate limits.
 - **Zerodha Kite Connect (Optional)**: If using live Zerodha broker data, install `kiteconnect` and provide credentials:
   ```bash
   pip install kiteconnect>=4.2.0
@@ -174,7 +166,7 @@ http://127.0.0.1:8000
 
 ### 5. Running Tests
 
-Execute the complete 557-item test suite across all subsystems:
+Execute the complete 578-item test suite across all subsystems:
 ```bash
 # Run the full test suite
 pytest

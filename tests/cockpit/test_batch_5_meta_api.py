@@ -33,7 +33,7 @@ def temp_meta_repo(tmp_path: Path) -> CsvMetadataRepository:
 
 @pytest.fixture
 def live_app_state(temp_meta_repo: CsvMetadataRepository) -> AppState:
-    config = EngineConfig(provider="twelvedata")
+    config = EngineConfig(provider="yfinance")
     state = AppState(
         config=config,
         metadata_repo=temp_meta_repo,

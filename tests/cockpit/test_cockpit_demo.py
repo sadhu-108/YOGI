@@ -262,7 +262,13 @@ def test_demo_provider_resolves_fixtures_from_arbitrary_cwd(monkeypatch, tmp_pat
 
 def test_provider_switching_live_and_demo():
     """Verify switching between demo and live providers through /api/dataset/refresh."""
+    from tests.cockpit.test_cockpit_yfinance import MockYFinanceProvider
+
+    mock_live = MockYFinanceProvider(symbols=["RELIANCE", "TCS", "INFY", "WIPRO", "HDFCBANK", "ICICIBANK"])
     state = AppState()
+    state.orchestrator.registry.providers._instances["yfinance"] = mock_live
+    state.orchestrator.registry.providers._factories.pop("yfinance", None)
+
     app = create_app(app_state=state, auto_refresh=False)
     client = AsgiTestClient(app)
 
@@ -278,12 +284,13 @@ def test_provider_switching_live_and_demo():
     assert data["universe_count"] == 5
     assert data["is_demo"] is True
 
-    # 3. Requesting live when live provider is offline/mocked handles error informatively without crashing
+    # 3. Requesting live switches to injected live provider without external network
     res = client.post("/api/dataset/refresh", json={"provider": "live"})
-    if res.status_code != 200:
-        assert res.status_code == 500
-        assert "detail" in res.json()
-        assert "Failed to refresh dataset" in res.json()["detail"]
+    assert res.status_code == 200
+    data = res.json()
+    assert data["universe_count"] == 6
+    assert data["is_demo"] is False
+    assert data["provider"] == "yfinance"
 
     # 4. Switching back to demo works flawlessly and restores the demo dataset
     res = client.post("/api/dataset/refresh", json={"provider": "demo"})

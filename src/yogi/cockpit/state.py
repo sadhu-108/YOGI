@@ -131,7 +131,7 @@ class AppState:
 
         # Retain configured live provider and bands repository keys for switching back from demo
         self._live_provider_key = (
-            self._config.provider if self._config.provider not in ("demo", "yfinance") else "twelvedata"
+            self._config.provider if self._config.provider != "demo" else "yfinance"
         )
         self._live_bands_key = (
             self._config.bands_repository if self._config.bands_repository not in ("demo",) else "csv"
@@ -326,33 +326,26 @@ class AppState:
             if provider == "demo":
                 target_provider = "demo"
                 target_bands_repo = "demo"
-            elif provider in ("twelvedata", "twelve_data"):
-                target_provider = "twelvedata"
-                target_bands_repo = (
-                    bands_repository
-                    if bands_repository is not None and self._orchestrator.registry.bands.has(bands_repository)
-                    else (self._live_bands_key if self._orchestrator.registry.bands.has(self._live_bands_key) else "demo")
-                )
             elif provider in ("live", "yfinance"):
-                target_provider = self._live_provider_key
+                target_provider = "yfinance"
                 target_bands_repo = (
                     bands_repository
                     if bands_repository is not None and self._orchestrator.registry.bands.has(bands_repository)
-                    else (self._live_bands_key if self._orchestrator.registry.bands.has(self._live_bands_key) else "demo")
+                    else (self._live_bands_key if self._orchestrator.registry.bands.has(self._live_bands_key) else "csv")
                 )
             elif provider is not None:
                 target_provider = provider
                 target_bands_repo = (
                     bands_repository
                     if bands_repository is not None and self._orchestrator.registry.bands.has(bands_repository)
-                    else ("demo" if target_provider == "demo" else (self._live_bands_key if self._orchestrator.registry.bands.has(self._live_bands_key) else "demo"))
+                    else ("demo" if target_provider == "demo" else (self._live_bands_key if self._orchestrator.registry.bands.has(self._live_bands_key) else "csv"))
                 )
             else:
-                target_provider = self._config.provider
+                target_provider = self._config.provider if self._config.provider != "demo" else "yfinance"
                 target_bands_repo = (
                     self._config.bands_repository
                     if self._orchestrator.registry.bands.has(self._config.bands_repository)
-                    else "demo"
+                    else ("demo" if target_provider == "demo" else "csv")
                 )
 
             # 2. Guarantee demo capabilities are registered in the active registry if demo was requested
@@ -362,14 +355,7 @@ class AppState:
                 if not self._orchestrator.registry.bands.has("demo"):
                     self._orchestrator.registry.bands.register("demo", DemoBandsRepository())
 
-            # 3. Dynamic lazy registration for live providers if requested and not yet in registry
-            if target_provider in ("twelvedata", "twelve_data") and not self._orchestrator.registry.providers.has(target_provider):
-                try:
-                    from yogi.data.providers.twelve_data import TwelveDataProvider
-                    self._orchestrator.registry.providers.register(target_provider, TwelveDataProvider())
-                except Exception as exc:
-                    logger.warning("Could not register TwelveDataProvider for '%s': %s", target_provider, exc)
-
+            # 3. Dynamic lazy registration for live provider (yfinance) if requested and not yet in registry
             if target_provider == "yfinance" and not self._orchestrator.registry.providers.has("yfinance"):
                 try:
                     from yogi.data.providers.yfinance import YFinanceDataProvider
@@ -402,17 +388,11 @@ class AppState:
                 except Exception as exc:
                     logger.warning("Could not switch to CsvMetadataRepository: %s", exc)
 
-            # 4. Determine target symbols, protecting against downloading entire universe on free-tier rate limits
+            # 4. Determine target symbols (full universe / configured symbols - NO INFY WORKAROUND, NO ARTIFICIAL LIMITATION)
             if symbols is not None:
                 target_symbols = symbols
             elif target_provider == "demo":
                 target_symbols = None
-            elif target_provider in ("twelvedata", "twelve_data"):
-                target_symbols = (
-                    self._config.symbols
-                    if (self._config.symbols and self._config.provider in ("twelvedata", "twelve_data"))
-                    else ("INFY",)
-                )
             else:
                 target_symbols = self._config.symbols
 
@@ -664,12 +644,12 @@ class AppState:
             except Exception as exc:
                 logger.warning("Could not lazy-register DemoDataProvider: %s", exc)
 
-        if provider_key in ("twelvedata", "twelve_data") and not self._orchestrator.registry.providers.has(provider_key):
+        if provider_key == "yfinance" and not self._orchestrator.registry.providers.has(provider_key):
             try:
-                from yogi.data.providers.twelve_data import TwelveDataProvider
-                self._orchestrator.registry.providers.register(provider_key, TwelveDataProvider())
+                from yogi.data.providers.yfinance import YFinanceDataProvider
+                self._orchestrator.registry.providers.register(provider_key, YFinanceDataProvider())
             except Exception as exc:
-                logger.warning("Could not lazy-register TwelveDataProvider for '%s': %s", provider_key, exc)
+                logger.warning("Could not lazy-register YFinanceDataProvider for '%s': %s", provider_key, exc)
 
         if not self._orchestrator.registry.providers.has(provider_key):
             logger.warning("Active provider '%s' not registered in orchestrator registry", provider_key)

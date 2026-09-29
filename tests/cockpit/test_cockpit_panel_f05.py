@@ -253,6 +253,8 @@ def test_f05_demo_live_isolation_on_refresh():
             config=EngineConfig(provider="demo", bands_repository="demo"),
             initial_dataset={},
         )
+        mock_live = ControllableMockProvider("yfinance")
+        state.orchestrator.registry.providers.register("yfinance", mock_live)
 
         # Resolve a demo stock on-demand
         panel_demo = state.get_stock_panel("SBCL")
@@ -260,11 +262,13 @@ def test_f05_demo_live_isolation_on_refresh():
         assert "SBCL" in state._panel_cache
 
         # Switch to Live mode via refresh()
-        await state.refresh(provider="twelvedata")
+        await state.refresh(provider="yfinance")
 
         # Panel cache must be completely cleared upon mode switch
         assert len(state._panel_cache) == 0
         assert "SBCL" not in state._panel_cache
+        assert state.is_demo is False
+        assert "VALID_SYM" in state.dataset
 
     asyncio.run(_test())
 

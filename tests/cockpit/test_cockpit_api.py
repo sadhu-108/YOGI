@@ -65,6 +65,8 @@ class MockProvider(IDataProvider):
         return ["ALPHA", "BETA", "GAMMA", "DELTA"]
 
     def daily_history(self, symbol: str, exchange: str = "NSE", years: int = 2) -> Sequence[MarketBar]:
+        if symbol not in ("ALPHA", "BETA", "GAMMA", "DELTA"):
+            return ()
         base = datetime(2025, 1, 1)
         return [
             MarketBar(
@@ -194,6 +196,10 @@ def test_app_state(sample_dataset):
     chart_service = ChartDataService(provider=provider, bands_repo=bands_repo)
     catalog = load_mentor_presets()
 
+    hub.providers.register("mock", provider)
+    hub.bands.register("mock", bands_repo)
+    hub.bands.register("demo", bands_repo)
+
     return AppState(
         orchestrator=orchestrator,
         catalog=catalog,
@@ -201,7 +207,7 @@ def test_app_state(sample_dataset):
         chart_service=chart_service,
         assembler=ResultAssembler(),
         formatter=ExportFormatter(),
-        config=EngineConfig(),
+        config=EngineConfig(provider="mock", bands_repository="mock"),
         initial_dataset=sample_dataset,
     )
 

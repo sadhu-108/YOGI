@@ -47,7 +47,7 @@ def persistent_repo(tmp_path: Path) -> CsvBandsRepository:
 
 @pytest.fixture
 def app_state_with_csv(persistent_repo: CsvBandsRepository) -> AppState:
-    config = EngineConfig(provider="twelvedata", bands_repository="csv")
+    config = EngineConfig(provider="yfinance", bands_repository="csv")
     state = AppState(
         bands_repo=persistent_repo,
         config=config,

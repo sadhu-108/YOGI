@@ -203,7 +203,7 @@ def test_batch_u3_html_elements_present():
     assert 'id="bandHistoryModal"' in content
     assert 'id="bandBackupsModal"' in content
     assert 'id="raceModal"' in content
-    assert 'id="raceChartCanvas"' in content
+    assert '<canvas id="raceChartCanvas"' in content
     assert 'id="raceLeaderboardContainer"' in content
 
 
@@ -385,6 +385,171 @@ def test_sprint_race_with_explicit_symbols(client):
     lines = data["lines"]
     symbols = {l["symbol"] for l in lines}
     assert "MANYAVAR" in symbols or "SBCL" in symbols
+
+
+def test_sprint_race_canvas_renderer_regression(client):
+    """Regression test for Sprint Race canvas getContext runtime defect.
+
+    Proves:
+    1. Sprint Race modal markup exists and open button triggers modal display
+    2. Race response (/api/race) is schema-valid and successfully handled
+    3. The renderer receives an actual HTMLCanvasElement (<canvas>), NOT a <div>
+    4. canvas.getContext('2d') is successfully obtained without TypeError
+    5. The race visualization renders trajectories without runtime error
+    """
+    import shutil
+    import subprocess
+    import tempfile
+    from bs4 import BeautifulSoup
+
+    html_path = Path("src/yogi/cockpit/static/index.html")
+    assert html_path.exists(), "index.html must exist"
+    html_content = html_path.read_text(encoding="utf-8")
+
+    app_js_path = Path("src/yogi/cockpit/static/js/app.js")
+    assert app_js_path.exists(), "app.js must exist"
+    app_js_content = app_js_path.read_text(encoding="utf-8")
+
+    # 1. Proving Sprint Race modal opens:
+    soup = BeautifulSoup(html_content, "html.parser")
+    race_modal = soup.find(id="raceModal")
+    assert race_modal is not None, "raceModal element must exist"
+    assert "modal-backdrop" in race_modal.get("class", [])
+
+    open_btn = soup.find(id="openRaceBtn")
+    assert open_btn is not None, "openRaceBtn must exist"
+    assert "openRaceBtn" in app_js_content
+    assert "raceModal.style.display = 'flex'" in app_js_content
+    assert "executeRace();" in app_js_content
+
+    # 2. Proving race response is handled:
+    resp = client.get("/api/race", params={"anchor": "2021-01-01", "top": 5})
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "lines" in data
+    lines = data["lines"]
+    assert len(lines) > 0
+    assert "currentRaceLines = res.lines || [];" in app_js_content
+    assert "renderRaceChart(currentRaceLines);" in app_js_content
+
+    # 3. Proving renderer receives an actual HTML canvas (NOT a div):
+    canvas_elems = soup.find_all(id="raceChartCanvas")
+    assert len(canvas_elems) == 1, "Must have exactly one element with id='raceChartCanvas' (no duplicate IDs)"
+    canvas_tag = canvas_elems[0]
+    assert canvas_tag.name == "canvas", (
+        f"Critical regression: #raceChartCanvas must be a <canvas> element, but found <{canvas_tag.name}>! "
+        "A <div> causes runtime error 'canvas.getContext is not a function'."
+    )
+    assert "race-chart-viewport" in canvas_tag.get("class", [])
+
+    # 4 & 5. Proving getContext() is obtained and visualization renders without runtime error:
+    node_bin = shutil.which("node")
+    if node_bin:
+        node_script = f"""
+        const fs = require('fs');
+        const appJs = fs.readFileSync('src/yogi/cockpit/static/js/app.js', 'utf8');
+
+        const fnMatch = appJs.match(/function renderRaceChart\\(lines\\)\\s*\\{{([\\s\\S]*?\\n\\s*\\}})/);
+        if (!fnMatch) {{
+            console.error("renderRaceChart not found in app.js");
+            process.exit(1);
+        }}
+
+        let contextRequested = null;
+        let drawingCalls = [];
+        const mockCtx = {{
+            scale: (x, y) => drawingCalls.push(['scale', x, y]),
+            clearRect: (x, y, w, h) => drawingCalls.push(['clearRect', x, y, w, h]),
+            beginPath: () => drawingCalls.push(['beginPath']),
+            moveTo: (x, y) => drawingCalls.push(['moveTo', x, y]),
+            lineTo: (x, y) => drawingCalls.push(['lineTo', x, y]),
+            stroke: () => drawingCalls.push(['stroke']),
+            fillText: (text, x, y) => drawingCalls.push(['fillText', text, x, y]),
+            set strokeStyle(v) {{ drawingCalls.push(['strokeStyle', v]); }},
+            set fillStyle(v) {{ drawingCalls.push(['fillStyle', v]); }},
+            set font(v) {{ drawingCalls.push(['font', v]); }},
+            set textAlign(v) {{ drawingCalls.push(['textAlign', v]); }},
+            set lineWidth(v) {{ drawingCalls.push(['lineWidth', v]); }}
+        }};
+
+        const mockCanvas = {{
+            tagName: 'CANVAS',
+            id: 'raceChartCanvas',
+            parentElement: {{ clientWidth: 900 }},
+            style: {{}},
+            getContext: function(type) {{
+                contextRequested = type;
+                return mockCtx;
+            }}
+        }};
+
+        global.document = {{
+            getElementById: (id) => (id === 'raceChartCanvas' ? mockCanvas : null)
+        }};
+        global.window = {{ devicePixelRatio: 1 }};
+
+        const renderFn = new Function('lines', fnMatch[1]);
+        const testLines = {json.dumps(lines)};
+
+        try {{
+            renderFn(testLines);
+        }} catch (err) {{
+            console.error("RENDER_ERROR:", err.message);
+            process.exit(2);
+        }}
+
+        if (contextRequested !== '2d') {{
+            console.error("EXPECTED_2D_CONTEXT, got:", contextRequested);
+            process.exit(3);
+        }}
+
+        if (drawingCalls.length === 0) {{
+            console.error("NO_DRAWING_OPERATIONS_EXECUTED");
+            process.exit(4);
+        }}
+
+        // Verify negative test: on a <div> (the pre-fix defect), it throws 'canvas.getContext is not a function'
+        const mockDiv = {{
+            tagName: 'DIV',
+            id: 'raceChartCanvas',
+            parentElement: {{ clientWidth: 900 }},
+            style: {{}}
+        }};
+        global.document.getElementById = (id) => (id === 'raceChartCanvas' ? mockDiv : null);
+        let threwExpected = false;
+        try {{
+            renderFn(testLines);
+        }} catch (err) {{
+            if (err.message.includes('getContext is not a function')) {{
+                threwExpected = true;
+            }}
+        }}
+        if (!threwExpected) {{
+            console.error("NEGATIVE_TEST_FAILED: expected getContext is not a function on div");
+            process.exit(5);
+        }}
+
+        console.log("SUCCESS");
+        """
+
+        with tempfile.NamedTemporaryFile("w", suffix=".js", encoding="utf-8", delete=False) as tf:
+            tf.write(node_script)
+            temp_path = tf.name
+
+        try:
+            result = subprocess.run(
+                [node_bin, temp_path],
+                capture_output=True,
+                text=True,
+                cwd=Path.cwd(),
+            )
+            assert result.returncode == 0, f"Node verification failed: {result.stderr or result.stdout}"
+            assert "SUCCESS" in result.stdout
+        finally:
+            try:
+                Path(temp_path).unlink()
+            except OSError:
+                pass
 
 
 # =============================================================================
