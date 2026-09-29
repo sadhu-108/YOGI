@@ -2330,3 +2330,176 @@ body.drawer-open .data-table td {
     color: var(--accent-blue-light);
     font-size: 12px;
 }
+
+/* ==========================================================================
+   BATCH U4: MEASUREMENT TOOL & DATA SNAPSHOTS CONSOLE
+   ========================================================================== */
+
+/* Chart Measurement Tool in Drawer Toolbar */
+.toolbar-measure-wrap {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.measure-toggle-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 11px;
+    padding: 3px 8px;
+    height: 24px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.measure-toggle-btn.active {
+    background-color: var(--accent-blue);
+    border-color: var(--accent-blue-light);
+    color: #ffffff;
+    box-shadow: 0 0 6px rgba(88, 166, 255, 0.4);
+}
+
+.measure-hud {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background-color: #0d1117;
+    border: 1px solid var(--accent-blue-light);
+    border-radius: 4px;
+    padding: 2px 8px;
+    font-size: 11px;
+    animation: fadeIn 0.15s ease-in-out;
+}
+
+.measure-hud-step {
+    color: var(--text-secondary);
+}
+
+.measure-hud-result {
+    font-weight: 700;
+    padding: 1px 4px;
+    border-radius: 3px;
+    font-size: 11px;
+}
+
+.btn-measure-reset {
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    font-size: 12px;
+    cursor: pointer;
+    padding: 0 2px;
+    line-height: 1;
+}
+
+.btn-measure-reset:hover {
+    color: var(--accent-red-bright);
+}
+
+/* Data & Snapshots Modal Header Tabs */
+.modal-header-tabs {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex-wrap: wrap;
+}
+
+.data-mgmt-tabs {
+    display: inline-flex;
+    background-color: var(--bg-dark);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    padding: 2px;
+    gap: 2px;
+}
+
+.data-tab-btn {
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    font-size: 11px;
+    font-weight: 500;
+    padding: 4px 10px;
+    border-radius: 3px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.data-tab-btn:hover {
+    color: var(--text-primary);
+}
+
+.data-tab-btn.active {
+    background-color: var(--card-bg);
+    color: var(--accent-blue-light);
+    font-weight: 600;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+
+/* Restore Impact Safety Notice Card */
+.restore-impact-card {
+    background-color: rgba(227, 179, 65, 0.1);
+    border: 1px solid rgba(227, 179, 65, 0.3);
+    border-radius: 5px;
+    padding: 10px 12px;
+}
+
+.restore-impact-title {
+    font-size: 12px;
+    font-weight: 700;
+    color: #e3b341;
+    margin-bottom: 4px;
+}
+
+.restore-impact-desc {
+    font-size: 11px;
+    color: var(--text-secondary);
+    margin: 0;
+    line-height: 1.4;
+}
+
+/* Global Band Audit Trail */
+.audit-summary-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 11px;
+    color: var(--text-muted);
+    padding: 4px 2px;
+}
+
+.global-audit-table-wrap {
+    max-height: 420px;
+    overflow-y: auto;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+}
+
+.global-audit-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 11px;
+}
+
+.global-audit-table th {
+    background-color: var(--card-sub-bg);
+    color: var(--text-secondary);
+    font-weight: 600;
+    text-align: left;
+    padding: 6px 8px;
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.global-audit-table td {
+    padding: 6px 8px;
+    border-bottom: 1px solid var(--border-light);
+    color: var(--text-primary);
+}
+
+.global-audit-table tr:hover {
+    background-color: var(--table-row-hover);
+}

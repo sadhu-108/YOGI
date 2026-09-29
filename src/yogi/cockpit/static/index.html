@@ -34,8 +34,8 @@
             <button id="refreshBtn" class="btn btn-secondary btn-sm" title="Rebuild live dataset from Twelve Data provider">
                 <span class="refresh-icon">↻</span> Rebuild Live (Twelve Data)
             </button>
-            <button id="bandBackupsBtn" class="btn btn-secondary btn-sm" title="View and restore dated band backups">
-                <span class="icon">📦</span> Band Backups
+            <button id="bandBackupsBtn" class="btn btn-secondary btn-sm" title="View band snapshots, global audit log, and data management">
+                <span class="icon">⚙</span> Data &amp; Snapshots
             </button>
         </div>
     </header>
@@ -489,6 +489,18 @@
                         <button type="button" class="menu-option-btn" data-panel="yogi_roc">YOGI ROC (21d)</button>
                     </div>
                 </div>
+
+                <!-- Point-to-Point Measurement Tool (Batch U4) -->
+                <div class="toolbar-measure-wrap">
+                    <button type="button" class="btn btn-sm btn-outline measure-toggle-btn" id="chartMeasureBtn" title="Point-to-point percentage delta measurement tool">
+                        <span>📏</span> Measure
+                    </button>
+                    <div class="measure-hud" id="measureHud" style="display: none;">
+                        <span class="measure-hud-step" id="measureHudStep">Click 1st point (Start Price)</span>
+                        <span class="measure-hud-result" id="measureHudResult" style="display: none;"></span>
+                        <button type="button" class="btn-measure-reset" id="measureResetBtn" title="Cancel measurement">✕</button>
+                    </div>
+                </div>
             </div>
 
             <div class="toolbar-right-group">
@@ -609,18 +621,45 @@
         </div>
     </div>
 
-    <!-- Band Snapshots & Daily Backups Modal (Batch U3) -->
+    <!-- Data & Snapshots Management Modal (Batch U3/U4 Global Band Management) -->
     <div class="modal-backdrop" id="bandBackupsModal" style="display: none;">
         <div class="modal-card modal-card-lg">
             <div class="modal-header">
-                <h3>📦 Band Snapshots &amp; Daily Backups</h3>
+                <div class="modal-header-tabs">
+                    <h3>⚙ Data &amp; Snapshots Management</h3>
+                    <div class="data-mgmt-tabs">
+                        <button type="button" class="data-tab-btn active" id="tabSnapshotsBtn">📦 Snapshots &amp; Restore</button>
+                        <button type="button" class="data-tab-btn" id="tabGlobalAuditBtn">📜 Global Band Audit</button>
+                    </div>
+                </div>
                 <button class="modal-close" id="bandBackupsCloseBtn">×</button>
             </div>
             <div class="modal-body">
-                <p class="text-muted mb-2" style="font-size: 12px;">View and restore dated historical snapshots of discretionary band configurations (<code>data/band_backups/</code>). Restoring will safely replace active <code>data/bands.csv</code> and refresh analysis.</p>
-                <div id="bandBackupsLoading" class="text-muted p-2" style="display: none;">Loading snapshots...</div>
-                <div id="bandBackupsListContainer" class="band-backups-table-wrap">
-                    <!-- Populated dynamically -->
+                <!-- Tab 1: Snapshots & Restore -->
+                <div id="dataTabSnapshots" class="data-tab-content">
+                    <div class="restore-impact-card mb-2">
+                        <div class="restore-impact-title">⚠️ Restore Impact &amp; Safety Notice</div>
+                        <p class="restore-impact-desc">
+                            Restoring a dated snapshot safely replaces active band configurations across all stocks with that snapshot's levels.
+                            An automatic safety backup of current bands is created before applying changes. In Demo mode, persistent restore is locked (HTTP 403).
+                        </p>
+                    </div>
+                    <div id="bandBackupsLoading" class="text-muted p-2" style="display: none;">Loading snapshots...</div>
+                    <div id="bandBackupsListContainer" class="band-backups-table-wrap">
+                        <!-- Populated dynamically -->
+                    </div>
+                </div>
+
+                <!-- Tab 2: Global Band Audit Trail -->
+                <div id="dataTabAudit" class="data-tab-content" style="display: none;">
+                    <div class="audit-summary-bar mb-2">
+                        <span>Universe-wide reverse-chronological log of manual band width adjustments across all symbols.</span>
+                        <button type="button" class="btn btn-xs btn-outline" id="refreshGlobalAuditBtn">↻ Refresh</button>
+                    </div>
+                    <div id="globalAuditLoading" class="text-muted p-2" style="display: none;">Loading global audit trail...</div>
+                    <div id="globalAuditContainer" class="global-audit-table-wrap">
+                        <!-- Populated dynamically -->
+                    </div>
                 </div>
             </div>
             <div class="modal-footer">

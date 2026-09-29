@@ -70,6 +70,14 @@ class CockpitChart {
         this.subSeriesList = [];
         this.subPriceLines = [];
 
+        // Point-to-Point Measurement Tool (Batch U4)
+        this.isMeasuring = false;
+        this.measureP1 = null; // { price: number, time: string }
+        this.measureP2 = null; // { price: number, time: string }
+        this.measureP1Line = null;
+        this.measureP2Line = null;
+        this.onMeasureChange = null; // callback (state) => void
+
         this.init();
     }
 
@@ -101,6 +109,29 @@ class CockpitChart {
                     timeVisible: false,
                     secondsVisible: false,
                 },
+            });
+
+            // Point-to-Point Measurement Click Subscription
+            this.chart.subscribeClick((param) => {
+                if (!this.isMeasuring) return;
+                if (!param || !param.point) return;
+
+                let price = null;
+                if (this.candleSeries && typeof this.candleSeries.coordinateToPrice === 'function') {
+                    price = this.candleSeries.coordinateToPrice(param.point.y);
+                }
+                if (price === null && param.seriesData && this.candleSeries && typeof param.seriesData.get === 'function') {
+                    const candle = param.seriesData.get(this.candleSeries);
+                    if (candle && typeof candle.close === 'number') price = candle.close;
+                }
+                if (price === null && this.currentData && this.currentData.candles && param.time) {
+                    const c = this.currentData.candles.find(bar => bar.time === param.time);
+                    if (c && typeof c.close === 'number') price = c.close;
+                }
+
+                if (price !== null && !isNaN(price)) {
+                    this.recordMeasurePoint(price, param.time);
+                }
             });
 
             // Candlesticks (Primary series)
@@ -299,12 +330,148 @@ class CockpitChart {
         }
 
         this._clearSubChart();
+        this._clearMeasureLines();
+        if (this.isMeasuring) {
+            this.measureP1 = null;
+            this.measureP2 = null;
+        }
 
         if (this.container) {
             const canvas = this.container.querySelector('canvas');
             if (canvas) {
                 const ctx = canvas.getContext('2d');
                 ctx.clearRect(0, 0, canvas.width, canvas.height);
+            }
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Point-to-Point Measurement Tool Methods (Batch U4)
+    // -------------------------------------------------------------------------
+    toggleMeasure(forceState) {
+        this.isMeasuring = typeof forceState === 'boolean' ? forceState : !this.isMeasuring;
+        if (!this.isMeasuring) {
+            this.cancelMeasure();
+        } else {
+            this.resetMeasure();
+            if (this.onMeasureChange) {
+                this.onMeasureChange({ active: true, step: 1, p1: null, p2: null, deltaPct: null, deltaAbs: null });
+            }
+        }
+        return this.isMeasuring;
+    }
+
+    recordMeasurePoint(price, time = null) {
+        if (!this.isMeasuring) return;
+        const p = typeof price === 'number' ? price : parseFloat(price);
+        if (isNaN(p)) return;
+
+        if (!this.measureP1 || (this.measureP1 && this.measureP2)) {
+            // Step 1: First point (or reset if both already existed)
+            this._clearMeasureLines();
+            this.measureP1 = { price: p, time: time || '' };
+            this.measureP2 = null;
+
+            if (this.candleSeries && typeof this.candleSeries.createPriceLine === 'function') {
+                try {
+                    this.measureP1Line = this.candleSeries.createPriceLine({
+                        price: p,
+                        color: '#58a6ff',
+                        lineWidth: 1.5,
+                        lineStyle: window.LightweightCharts ? window.LightweightCharts.LineStyle.Dashed : 2,
+                        axisLabelVisible: true,
+                        title: `P1: ₹${p.toFixed(2)}`,
+                    });
+                } catch (_) {}
+            }
+
+            if (this.onMeasureChange) {
+                this.onMeasureChange({
+                    active: true,
+                    step: 2,
+                    p1: this.measureP1,
+                    p2: null,
+                    deltaPct: null,
+                    deltaAbs: null,
+                });
+            }
+        } else if (this.measureP1 && !this.measureP2) {
+            // Step 2: Second point -> complete measurement
+            this.measureP2 = { price: p, time: time || '' };
+            const p1 = this.measureP1.price;
+            const p2 = this.measureP2.price;
+            const deltaAbs = p2 - p1;
+            const deltaPct = p1 !== 0 ? (deltaAbs / Math.abs(p1)) * 100.0 : 0.0;
+            const color = deltaPct >= 0 ? '#26a69a' : '#ef5350';
+
+            if (this.candleSeries && typeof this.candleSeries.createPriceLine === 'function') {
+                try {
+                    this.measureP2Line = this.candleSeries.createPriceLine({
+                        price: p2,
+                        color: color,
+                        lineWidth: 1.5,
+                        lineStyle: window.LightweightCharts ? window.LightweightCharts.LineStyle.Solid : 0,
+                        axisLabelVisible: true,
+                        title: `P2: ₹${p2.toFixed(2)} (${deltaPct >= 0 ? '+' : ''}${deltaPct.toFixed(2)}%)`,
+                    });
+                } catch (_) {}
+            }
+
+            if (this.onMeasureChange) {
+                this.onMeasureChange({
+                    active: true,
+                    step: 3,
+                    p1: this.measureP1,
+                    p2: this.measureP2,
+                    deltaPct: deltaPct,
+                    deltaAbs: deltaAbs,
+                });
+            }
+        }
+    }
+
+    resetMeasure() {
+        this._clearMeasureLines();
+        this.measureP1 = null;
+        this.measureP2 = null;
+        if (this.onMeasureChange && this.isMeasuring) {
+            this.onMeasureChange({
+                active: true,
+                step: 1,
+                p1: null,
+                p2: null,
+                deltaPct: null,
+                deltaAbs: null,
+            });
+        }
+    }
+
+    cancelMeasure() {
+        this.isMeasuring = false;
+        this._clearMeasureLines();
+        this.measureP1 = null;
+        this.measureP2 = null;
+        if (this.onMeasureChange) {
+            this.onMeasureChange({
+                active: false,
+                step: 0,
+                p1: null,
+                p2: null,
+                deltaPct: null,
+                deltaAbs: null,
+            });
+        }
+    }
+
+    _clearMeasureLines() {
+        if (this.candleSeries && typeof this.candleSeries.removePriceLine === 'function') {
+            if (this.measureP1Line) {
+                try { this.candleSeries.removePriceLine(this.measureP1Line); } catch (_) {}
+                this.measureP1Line = null;
+            }
+            if (this.measureP2Line) {
+                try { this.candleSeries.removePriceLine(this.measureP2Line); } catch (_) {}
+                this.measureP2Line = null;
             }
         }
     }
@@ -704,6 +871,19 @@ class CockpitChart {
 
         ctx.fillStyle = '#131722';
         ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        canvas.addEventListener('click', (e) => {
+            if (!this.isMeasuring) return;
+            const rect = canvas.getBoundingClientRect();
+            const y = e.clientY - rect.top;
+            const x = e.clientX - rect.left;
+            const availableH = canvas.height - 40;
+            const ratio = (canvas.height - 20 - y) / (availableH || 1);
+            const price = minP + ratio * priceRange;
+            const barIdx = Math.max(0, Math.min(candles.length - 1, Math.floor((x - 20) / (stepX || 1))));
+            const time = candles[barIdx] ? candles[barIdx].time : null;
+            this.recordMeasurePoint(price, time);
+        });
 
         const candles = data.candles || [];
         if (candles.length === 0) {

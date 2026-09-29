@@ -1,9 +1,9 @@
 # YOGI Current State
 
-## Current State: MVP Backend + Batches 1–5 + Batches U1–U3 Complete & Frozen
+## Current State: MVP Backend + Batches 1–5 + Batches U1–U4 Complete & Frozen
 
 **Date**: 2026-09-29  
-**Status**: MVP Backend & Analytical Engine + Batches 1–5 + Batch U1 (Stock Detail) + Batch U2 (Unified Screening Workspace) + Batch U3 (Power Controls & Secondary Workflows) VERIFIED & FROZEN | Master Cockpit UX Prototype Verified | Architectural Parity & Zero JS Math Maintained | Test Suite: 595 passed across unit, integration, live smoke, and golden regression suites.
+**Status**: MVP Backend & Analytical Engine + Batches 1–5 + Batch U1 (Stock Detail) + Batch U2 (Unified Screening Workspace) + Batch U3 (Power Controls & Secondary Workflows) + Batch U4 (Secondary Features & Global Management) VERIFIED & FROZEN | Master Cockpit UX Prototype Verified | Architectural Parity & Zero JS Math Maintained | Test Suite: 609 passed across unit, integration, live smoke, and golden regression suites.
 
 ---
 
@@ -352,6 +352,24 @@ The system strictly distinguishes between different categories of capability sta
   - Security metadata badges (Sector, Grade, Mcap, F&O) in Stock Detail Drawer header.
   - Categorized Multi-Timeframe Matrix (Trend & Alignment, Momentum & Speed, Strength, Bands & Volatility).
   - Async race safety on rapid stock switching (`currentStockDrawerRequestId`).
+- **Batch U2 Unified Screening / Configuration Workspace**:
+  - Five progressive-disclosure configuration cards (Universe, Qualification Filters, Multi-Period Rank Cutoffs, Cohort Ranking, Run & Export).
+  - Screening Funnel Telemetry (`universe_count → qualified_count → selected_count`).
+  - Native condition negation toggles (`NOT`) translating to `is_negated: true` in `FilterRuleIn` / `FilterGroupIn`.
+  - Professional quick preset selector for the 21 Verified Mentor Presets.
+- **Batch U3 Power Controls & Secondary Workflows**:
+  - Six-Timeframe Band Tuning: Inline editing grid for D/W/M/Q/H/Y bands in Stock Detail Drawer using `PUT /api/bands/{symbol}`.
+  - Single-Stock Band Change History: Reverse-chronological audit log modal via `GET /api/bands/log/{symbol}`.
+  - Two-Way Security Metadata Editing: Persistent editing of Sector, Grade, and Market Cap via `POST /api/meta/{symbol}`.
+  - Sprint Race Visualizer: Interactive multi-symbol relative momentum chart modal via `GET /api/race`.
+  - Power Universe Filters: Sector, Instrument Type (Equity, Index, ETF), and Microcap filters mapped directly to `FilterRuleSpec`.
+  - Grouped Band Position Filter: Multi-select `ABOVE`, `IN`, `BELOW` states mapped to `FilterGroupSpec(match="any")`.
+  - Multi-Period Cutoff Templates: Standard presets (Top 10 sustained 2M/3M, Top 20 sustained 1M, Top 5 aggressive).
+  - Historical Period Drawer Breakdowns: Tabular views for CAGR (1Y..5Y), Calendar Returns (CY..CY-4), and Anchored Sprints (S4..S52).
+- **Batch U4 Secondary Features & Global Management**:
+  - Interactive Chart Point-to-Point Measurement Tool: Percentage delta ($\Delta \%$) and price delta ($\Delta$ ₹) measuring on TradingView Lightweight Charts (and fallback canvas) with persistent crosshair price lines, real-time HUD guide badge, and zero backend mutations.
+  - Global Band Management Console: Unified "Data & Snapshots" management modal (`bandBackupsModal`) with two tabs ("Snapshots & Restore" and "Global Band Audit Trail"), restore impact and safety notice, confirmation dialogs, Demo mode restore protection (HTTP 403), and universe-wide reverse-chronological change log (`GET /api/bands/log`).
+  - Strict preservation of U3 features without duplication (Sprint Race, per-stock band history, 6-TF band tuning, metadata editing).
 
 ### B. UI NOT YET EXPOSED (Remaining Minor Presentation Backlog)
 - Advanced filter builder UI controls for cross-field comparison (`field2`).

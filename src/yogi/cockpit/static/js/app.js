@@ -1558,6 +1558,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
         document.body.classList.remove('drawer-open');
         closeAllDrawerPopovers();
+        if (typeof chart.cancelMeasure === 'function') {
+            chart.cancelMeasure();
+        }
     }
 
     function closeAllDrawerPopovers() {
@@ -1725,6 +1728,56 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (activePanelLabel) activePanelLabel.textContent = 'Panels: None ▾';
         chart.setActivePanel('none');
     });
+
+    // 5. Chart Point-to-Point Measurement Tool (Batch U4)
+    const chartMeasureBtn = document.getElementById('chartMeasureBtn');
+    const measureHud = document.getElementById('measureHud');
+    const measureHudStep = document.getElementById('measureHudStep');
+    const measureHudResult = document.getElementById('measureHudResult');
+    const measureResetBtn = document.getElementById('measureResetBtn');
+
+    if (chartMeasureBtn) {
+        chartMeasureBtn.addEventListener('click', () => {
+            const isMeasuring = chart.toggleMeasure();
+            chartMeasureBtn.classList.toggle('active', isMeasuring);
+        });
+    }
+
+    if (measureResetBtn) {
+        measureResetBtn.addEventListener('click', () => {
+            chart.cancelMeasure();
+        });
+    }
+
+    chart.onMeasureChange = (state) => {
+        if (chartMeasureBtn) {
+            chartMeasureBtn.classList.toggle('active', !!state.active);
+        }
+
+        if (!measureHud) return;
+        if (!state.active) {
+            measureHud.style.display = 'none';
+            if (measureHudResult) measureHudResult.style.display = 'none';
+            return;
+        }
+
+        measureHud.style.display = 'inline-flex';
+        if (state.step === 1) {
+            if (measureHudStep) measureHudStep.textContent = 'Click 1st point (Start Price)';
+            if (measureHudResult) measureHudResult.style.display = 'none';
+        } else if (state.step === 2 && state.p1) {
+            if (measureHudStep) measureHudStep.textContent = `P1: ₹${state.p1.price.toFixed(2)} — Click 2nd point`;
+            if (measureHudResult) measureHudResult.style.display = 'none';
+        } else if (state.step === 3 && state.p1 && state.p2) {
+            const sign = state.deltaPct >= 0 ? '+' : '';
+            if (measureHudStep) measureHudStep.textContent = `₹${state.p1.price.toFixed(2)} → ₹${state.p2.price.toFixed(2)}`;
+            if (measureHudResult) {
+                measureHudResult.style.display = 'inline-block';
+                measureHudResult.className = `measure-hud-result ${state.deltaPct >= 0 ? 'val-positive' : 'val-negative'}`;
+                measureHudResult.textContent = `Δ: ${sign}${state.deltaPct.toFixed(2)}% (${sign}₹${state.deltaAbs.toFixed(2)})`;
+            }
+        }
+    };
 
     async function loadChartData(symbol, reqId = null) {
         const target = symbol || activeSymbol;
@@ -2477,18 +2530,98 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
     }
 
-    // C. Band Backup / Restore Management
+    // C. Data & Snapshots Management Console (Batch U3/U4)
     const bandBackupsModal = document.getElementById('bandBackupsModal');
-    const closeBandBackupsBtn = document.getElementById('closeBandBackupsBtn');
+    const closeBandBackupsBtn = document.getElementById('closeBandBackupsBtn') || document.getElementById('bandBackupsCloseBtn');
+    const bandBackupsDoneBtn = document.getElementById('bandBackupsDoneBtn');
     const bandBackupsBtn = document.getElementById('bandBackupsBtn');
 
+    const tabSnapshotsBtn = document.getElementById('tabSnapshotsBtn');
+    const tabGlobalAuditBtn = document.getElementById('tabGlobalAuditBtn');
+    const dataTabSnapshots = document.getElementById('dataTabSnapshots');
+    const dataTabAudit = document.getElementById('dataTabAudit');
+    const refreshGlobalAuditBtn = document.getElementById('refreshGlobalAuditBtn');
+
+    function switchDataTab(tabName) {
+        if (tabName === 'snapshots') {
+            tabSnapshotsBtn?.classList.add('active');
+            tabGlobalAuditBtn?.classList.remove('active');
+            if (dataTabSnapshots) dataTabSnapshots.style.display = 'block';
+            if (dataTabAudit) dataTabAudit.style.display = 'none';
+        } else {
+            tabGlobalAuditBtn?.classList.add('active');
+            tabSnapshotsBtn?.classList.remove('active');
+            if (dataTabSnapshots) dataTabSnapshots.style.display = 'none';
+            if (dataTabAudit) dataTabAudit.style.display = 'block';
+            loadGlobalBandLog();
+        }
+    }
+
+    tabSnapshotsBtn?.addEventListener('click', () => switchDataTab('snapshots'));
+    tabGlobalAuditBtn?.addEventListener('click', () => switchDataTab('audit'));
+    refreshGlobalAuditBtn?.addEventListener('click', () => loadGlobalBandLog());
+
+    async function loadGlobalBandLog() {
+        const container = document.getElementById('globalAuditContainer');
+        const loading = document.getElementById('globalAuditLoading');
+        if (!container) return;
+
+        if (loading) loading.style.display = 'block';
+        container.innerHTML = '';
+
+        try {
+            const data = await API.getGlobalBandLog(150);
+            if (loading) loading.style.display = 'none';
+            const changes = data.changes || [];
+            if (changes.length === 0) {
+                container.innerHTML = '<div class="empty-state p-3 text-muted">No manual band adjustments recorded in the global audit trail.</div>';
+                return;
+            }
+
+            container.innerHTML = `
+                <table class="global-audit-table">
+                    <thead>
+                        <tr>
+                            <th>Timestamp</th>
+                            <th>Symbol</th>
+                            <th>Timeframe</th>
+                            <th>Old %</th>
+                            <th>New %</th>
+                            <th>User</th>
+                            <th>Source / Reason</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${changes.map(c => `
+                            <tr>
+                                <td>${c.when ? c.when.replace('T', ' ').substring(0, 19) : '—'}</td>
+                                <td><strong>${c.symbol || '—'}</strong></td>
+                                <td><span class="badge badge-neutral">${c.timeframe || '—'}</span></td>
+                                <td>${c.old_pct !== null && c.old_pct !== undefined ? c.old_pct : '—'}</td>
+                                <td><strong style="color: var(--accent-blue-light);">${c.new_pct !== null && c.new_pct !== undefined ? c.new_pct : '—'}</strong></td>
+                                <td>${c.changed_by || 'discretionary'}</td>
+                                <td class="text-muted">${c.source || 'discretionary'}</td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            `;
+        } catch (err) {
+            if (loading) loading.style.display = 'none';
+            container.innerHTML = `<div class="empty-state p-3" style="color: var(--accent-red-bright);">Failed to load global audit trail: ${err.message}</div>`;
+        }
+    }
+
     async function loadBandBackups() {
-        const bodyEl = document.getElementById('bandBackupsBody');
+        const bodyEl = document.getElementById('bandBackupsListContainer') || document.getElementById('bandBackupsBody');
+        const loadingEl = document.getElementById('bandBackupsLoading');
         if (!bodyEl) return;
-        bodyEl.innerHTML = '<div class="empty-state">Loading backups...</div>';
+        if (loadingEl) loadingEl.style.display = 'block';
+        bodyEl.innerHTML = '';
 
         try {
             const data = await API.getBandBackups();
+            if (loadingEl) loadingEl.style.display = 'none';
             const backups = data.backups || [];
             if (backups.length === 0) {
                 bodyEl.innerHTML = '<div class="empty-state">No dated daily band backups available.</div>';
@@ -2524,22 +2657,29 @@ document.addEventListener('DOMContentLoaded', async () => {
             bodyEl.querySelectorAll('.btn-restore-backup').forEach(btn => {
                 btn.addEventListener('click', async (e) => {
                     const file = e.currentTarget.getAttribute('data-file');
-                    if (!confirm(`Restore all band widths from snapshot '${file}'?\nThis will overwrite current band configurations.`)) {
-                        return;
-                    }
+                    const ok = window.confirm(
+                        `Are you sure you want to restore snapshot '${file}'?\n\n` +
+                        `IMPACT NOTICE:\n` +
+                        `• Active band configurations for all symbols will be replaced with this snapshot.\n` +
+                        `• An automatic safety backup will be created immediately before restore.\n` +
+                        `• Materialized charts and analytical panels will refresh automatically.\n\n` +
+                        `Click OK to proceed with restoration.`
+                    );
+                    if (!ok) return;
+
                     try {
                         btn.disabled = true;
                         btn.textContent = '...';
-                        await API.restoreBandBackup(file);
-                        showToast(`Restored band snapshot '${file}' successfully!`, 'success');
-                        if (bandBackupsModal) bandBackupsModal.style.display = 'none';
+                        const res = await API.restoreBandBackup(file);
+                        showToast(`Restored snapshot '${file}' successfully (${res.stocks || 'all'} stocks)!`, 'success');
+                        await loadBandBackups();
                         if (activeSymbol) {
                             await loadChartData(activeSymbol);
                             await loadStockPanel(activeSymbol);
                         }
                     } catch (err) {
                         if (err.message && err.message.includes('403')) {
-                            showToast('Band restoration is disabled in Demo Mode.', 'warning');
+                            showToast('Band restore operation is disabled in Demo Mode (HTTP 403).', 'warning');
                         } else {
                             showToast(`Restore failed: ${err.message}`, 'error');
                         }
@@ -2549,6 +2689,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 });
             });
         } catch (err) {
+            if (loadingEl) loadingEl.style.display = 'none';
             bodyEl.innerHTML = `<div class="empty-state" style="color: var(--accent-red-bright);">Failed to load backups: ${err.message}</div>`;
         }
     }
@@ -2556,12 +2697,19 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (bandBackupsBtn) {
         bandBackupsBtn.addEventListener('click', () => {
             if (bandBackupsModal) bandBackupsModal.style.display = 'flex';
+            switchDataTab('snapshots');
             loadBandBackups();
         });
     }
 
     if (closeBandBackupsBtn) {
         closeBandBackupsBtn.addEventListener('click', () => {
+            if (bandBackupsModal) bandBackupsModal.style.display = 'none';
+        });
+    }
+
+    if (bandBackupsDoneBtn) {
+        bandBackupsDoneBtn.addEventListener('click', () => {
             if (bandBackupsModal) bandBackupsModal.style.display = 'none';
         });
     }

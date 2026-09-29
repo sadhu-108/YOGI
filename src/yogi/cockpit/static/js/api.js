@@ -145,10 +145,18 @@ const API = {
         return await res.json();
     },
 
-    async getBandLog(symbol, limit = 60) {
-        const res = await fetch(`/api/bands/log/${encodeURIComponent(symbol)}?limit=${limit}`);
-        if (!res.ok) await _handleError(res, `Failed to fetch band history for '${symbol}'`);
+    async getBandLog(symbol = null, limit = 60) {
+        const hasSymbol = symbol !== null && symbol !== undefined && String(symbol).trim() !== '';
+        const url = hasSymbol
+            ? `/api/bands/log/${encodeURIComponent(symbol)}?limit=${limit}`
+            : `/api/bands/log?limit=${limit}`;
+        const res = await fetch(url);
+        if (!res.ok) await _handleError(res, hasSymbol ? `Failed to fetch band history for '${symbol}'` : 'Failed to fetch global band history');
         return await res.json();
+    },
+
+    async getGlobalBandLog(limit = 100) {
+        return await this.getBandLog(null, limit);
     },
 
     async getBandBackups() {
