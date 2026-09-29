@@ -1,9 +1,9 @@
 # YOGI Current State
 
-## Current State: MVP Backend + Batches 1–5 + Batches U1–U2 Complete & Frozen
+## Current State: MVP Backend + Batches 1–5 + Batches U1–U3 Complete & Frozen
 
 **Date**: 2026-09-29  
-**Status**: MVP Backend & Analytical Engine + Batches 1–5 + Batch U1 (Stock Detail) + Batch U2 (Unified Screening Workspace) VERIFIED & FROZEN | Master Cockpit UX Prototype Verified | Architectural Parity & Zero JS Math Maintained | Test Suite: 580 passed across unit, integration, live smoke, and golden regression suites.
+**Status**: MVP Backend & Analytical Engine + Batches 1–5 + Batch U1 (Stock Detail) + Batch U2 (Unified Screening Workspace) + Batch U3 (Power Controls & Secondary Workflows) VERIFIED & FROZEN | Master Cockpit UX Prototype Verified | Architectural Parity & Zero JS Math Maintained | Test Suite: 595 passed across unit, integration, live smoke, and golden regression suites.
 
 ---
 
@@ -227,7 +227,16 @@
         - Reactively updating Active Configuration / Setup Summary Banner reflecting universe, preset (with modified indicator `(Modified)`), conditions (with `NOT` prefix), ranking, selection cutoff counts.
         - Funnel Telemetry: `Universe → Qualified → Selected`.
         - Dense Results Grid with multi-timeframe DMI and candlestick pattern badge rendering.
-        - Full preservation of Batch U1 Stock Detail Workspace.
+    - **Batch U3: Power Controls & Secondary Investor Workflows**:
+      - Six-Timeframe Band Tuning: Inline editable band width percentages directly in the Stock Detail Drawer matrix across D, W, M, Q, H, Y; instant update via `PUT /api/bands/{symbol}` and automatic panel/chart cache invalidation.
+      - Band Change History: Lightweight contextual modal consuming `GET /api/bands/log/{symbol}` displaying reverse-chronological audit log of timeframe, old %, new %, user, and source.
+      - Band Backup / Restore: Modal management console consuming `GET /api/bands/backups` and `POST /api/bands/restore/{filename}` with explicit confirmation dialog, route reordering to guarantee literal precedence, and Demo mode isolation (HTTP 403).
+      - Security Metadata Two-Way Editing: Inline `#metaEditPanel` in Stock Detail Drawer header allowing investor edits to Sector, Grade, and Notes via `POST /api/meta/{symbol}` with Demo mode isolation.
+      - Sprint Race Visualizer: Contextual `[🏁 SPRINT RACE]` action in Card 5, executing `GET /api/race` with multi-line trajectory rendering on responsive HTML5 canvas and rank leaderboard table.
+      - Advanced Universe Controls: Collapsible disclosure in Card 1 with Sector filtering auto-populated from discovered dataset rows, Instrument Type filtering (`EQ`, `ETF`, `SME`, `REIT_INVIT`, `BE`), and Microcap shortcut (`mcap < 100 Cr`).
+      - Grouped Band Position Shortcut: Compact control group in Card 2 replacing disparate buttons: `[Band Position: Select ▾]` (`above_m`, `inside_m`, `below_m`, `outside_2plus`, `reaction`) with `[+ Apply]`.
+      - Multi-Period Rank Cutoff Templates: Dropdown template convenience in Card 4 (`Top 100 Month & Year`, `Top 50 Across Quarters`, `Top 100 All Timeframes`) appending standard `RankCutoffIn` records adhering strictly to frozen `SelectionMode.ALL`.
+      - Historical Period Breakdown: Collapsible accordion in Stock Detail Drawer presenting multi-year CAGRs (`CAGR_1`..`CAGR_10`), calendar year returns (`Y2025`..`Y2021`), and fixed-date anchored sprints (`SPA_A21`..`SPA_A26`).
     - Operates with zero Node/NPM build toolchain dependencies.
   - **Presentation Boundary & Mentor Review Status**:
     - The current Cockpit UI in `src/yogi/cockpit/static/*` operates as a verified functional prototype workbench for validating analytical calculations, multi-timeframe synthesis, screening queries, and drawer telemetry.
@@ -249,7 +258,8 @@
   - `tests/cockpit/test_cockpit_stock_drawer.py` (12/12 tests passing).
   - `tests/cockpit/test_batch_u1_stock_detail.py` (11/11 tests passing).
   - `tests/cockpit/test_batch_u2_screener.py` (12/12 tests passing).
-  - Total Cockpit test suite: 173/173 tests passing (100%).
+  - `tests/cockpit/test_batch_u3_power_controls.py` (15/15 tests passing).
+  - Total Cockpit test suite: 188/188 tests passing (100%).
 
 ---
 
@@ -262,10 +272,10 @@ rootdir: D:\Yogi Investing\My_version
 configfile: pyproject.toml
 testpaths: tests
 plugins: anyio-4.15.1
-collected 580 items
+collected 595 items
 
-tests\calculation\ (8 files, 116 tests) ........................................ [ 20%]
-tests\cockpit\ (18 files, 173 tests) .......................................... [ 50%]
+tests\calculation\ (8 files, 116 tests) ........................................ [ 19%]
+tests\cockpit\ (19 files, 188 tests) .......................................... [ 51%]
 tests\core\ (4 files, 51 tests) ............................................... [ 59%]
 tests\data\ (6 files, 105 tests) .............................................. [ 77%]
 tests\filter\ (1 file, 13 tests) .............................................. [ 79%]
@@ -278,9 +288,9 @@ tests\storage\ (4 files, 36 tests) ............................................ 
 tests\strategy\ (2 files, 10 tests) ........................................... [ 96%]
 tests\timeframe\ (1 file, 25 tests) ........................................... [100%]
 
-======================== 580 passed, 2 warnings in ~160s ========================
+======================== 595 passed, 2 warnings in ~154s ========================
 ```
-Total tests: **580 passed, 0 failures** (100% pass rate across Core, Providers, Calculations, Pipeline, Storage, Cockpit, Batches 1–5, Batch U1, and Batch U2).
+Total tests: **595 passed, 0 failures** (100% pass rate across Core, Providers, Calculations, Pipeline, Storage, Cockpit, Batches 1–5, Batch U1, Batch U2, and Batch U3).
 
 ---
 
@@ -344,8 +354,7 @@ The system strictly distinguishes between different categories of capability sta
   - Async race safety on rapid stock switching (`currentStockDrawerRequestId`).
 
 ### B. UI NOT YET EXPOSED (Remaining Minor Presentation Backlog)
-- Advanced filter builder UI controls for cross-field comparison (`field2`) and condition negation (`NOT`).
-- Band snapshot restore trigger button in Cockpit workbench.
+- Advanced filter builder UI controls for cross-field comparison (`field2`).
 
 ### C. REMAINING MINOR BACKEND GAPS
 1. **Multi-Month Historical Rank Trajectory Disk Archive (/api/rankhistory/{symbol})**: Scanning disk archive dumps (data/history/*.csv) to return a multi-year rank trajectory curve. *(Current YOGI dynamically computes current-vs-prior month rank change RANK_CHG in-memory within the screening pipeline).*
@@ -360,7 +369,6 @@ The system strictly distinguishes between different categories of capability sta
 ### E. PRODUCT / MENTOR DECISIONS (UX Direction)
 - Information density model: 1-click header quick-tick ribbon vs clean consolidated strategy presets.
 - Oscillator layout: stacked sub-panes vs active oscillator dropdown selector.
-- Sprint Race visualizer placement: full-screen modal workbench vs drawer panel.
 
 ---
 

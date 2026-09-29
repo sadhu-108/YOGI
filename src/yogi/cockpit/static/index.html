@@ -34,6 +34,9 @@
             <button id="refreshBtn" class="btn btn-secondary btn-sm" title="Rebuild live dataset from Twelve Data provider">
                 <span class="refresh-icon">↻</span> Rebuild Live (Twelve Data)
             </button>
+            <button id="bandBackupsBtn" class="btn btn-secondary btn-sm" title="View and restore dated band backups">
+                <span class="icon">📦</span> Band Backups
+            </button>
         </div>
     </header>
 
@@ -70,6 +73,38 @@
                         </select>
                     </div>
                 </div>
+
+                <!-- Advanced Universe Disclosure (Batch U3) -->
+                <details class="universe-advanced mt-2" id="universeAdvancedDetails">
+                    <summary class="universe-advanced-summary">
+                        <span>More Universe Filters ▾</span>
+                    </summary>
+                    <div class="universe-advanced-body mt-2">
+                        <div class="form-group mb-2">
+                            <label for="universeSectorSelect" class="form-label-xs">Sector:</label>
+                            <select id="universeSectorSelect" class="form-control form-control-sm">
+                                <option value="">All Sectors</option>
+                            </select>
+                        </div>
+                        <div class="form-group mb-2">
+                            <label for="universeInstrSelect" class="form-label-xs">Instrument Type:</label>
+                            <select id="universeInstrSelect" class="form-control form-control-sm">
+                                <option value="">All Instrument Types</option>
+                                <option value="EQ">Equity Shares (EQ)</option>
+                                <option value="ETF">Exchange Traded Funds (ETF)</option>
+                                <option value="SME">SME / Emerge Shares</option>
+                                <option value="REIT_INVIT">REITs &amp; InvITs</option>
+                                <option value="BE">Trade-to-Trade (BE/BZ)</option>
+                            </select>
+                        </div>
+                        <div class="form-group mb-1">
+                            <label class="checkbox-label microcap-toggle">
+                                <input type="checkbox" id="universeMicrocapToggle">
+                                <span>Market Cap &lt; 100 Cr (Microcap)</span>
+                            </label>
+                        </div>
+                    </div>
+                </details>
 
                 <div class="form-group mt-2">
                     <label for="presetSelect">Strategy Preset Recipe:</label>
@@ -116,13 +151,22 @@
                         <button type="button" class="ema-btn" data-tf="Y" title="Toggle Yearly EMA Up">Y</button>
                     </div>
 
-                    <div class="shortcut-label mt-2">
-                        <span>Quick Band Position:</span>
-                    </div>
-                    <div class="band-quick-buttons">
-                        <button type="button" class="btn btn-xs btn-outline" id="quickBandAboveBtn">+ Above Monthly Band</button>
-                        <button type="button" class="btn btn-xs btn-outline" id="quickBandOutsideBtn">+ Outside Band (2+ TF)</button>
-                        <button type="button" class="btn btn-xs btn-outline" id="quickReactionTradeBtn">+ Reaction Trade (Below Y, W Up)</button>
+                    <div class="band-position-control-group mt-2">
+                        <label for="quickBandPositionSelect" class="shortcut-label">Band Position Shortcut:</label>
+                        <div class="band-position-row">
+                            <select id="quickBandPositionSelect" class="form-control form-control-sm">
+                                <option value="">— Select Band Position —</option>
+                                <option value="above_m">Above Monthly Band (BANDST_M == ABOVE)</option>
+                                <option value="inside_m">Inside Monthly Band (BANDST_M == IN)</option>
+                                <option value="below_m">Below Monthly Band (Reaction Setup)</option>
+                                <option value="outside_2plus">Outside Band on 2+ Timeframes</option>
+                                <option value="reaction">Reaction Trade (Below Yearly, Weekly Upcut)</option>
+                            </select>
+                            <button type="button" class="btn btn-xs btn-outline" id="applyBandPositionBtn">+ Apply</button>
+                        </div>
+                        <span id="quickBandAboveBtn" style="display: none;"></span>
+                        <span id="quickBandOutsideBtn" style="display: none;"></span>
+                        <span id="quickReactionTradeBtn" style="display: none;"></span>
                     </div>
                 </div>
 
@@ -209,7 +253,15 @@
                     <details open>
                         <summary class="disclosure-toggle">Rank Survival Cutoffs</summary>
                         <div class="disclosure-content pt-2">
-                            <small class="text-muted d-block mb-1">Filter stocks by ordinal rank thresholds (e.g. Month Rank &le; 100):</small>
+                            <div class="cutoff-header-actions mb-1">
+                                <small class="text-muted">Filter stocks by ordinal rank thresholds:</small>
+                                <select id="cutoffTemplateSelect" class="form-control form-control-xs cutoff-template-select" title="Apply common multi-period cutoff template">
+                                    <option value="">+ Template ▾</option>
+                                    <option value="top100_m_y">Top 100 Month &amp; Year</option>
+                                    <option value="top50_all_q">Top 50 Across Quarters</option>
+                                    <option value="top100_all_tf">Top 100 All Timeframes (D..Y)</option>
+                                </select>
+                            </div>
                             <div id="cutoffsContainer" class="cutoffs-container"></div>
                             <button type="button" id="addCutoffBtn" class="btn btn-ghost btn-xs mt-1">+ Add Rank Cutoff (e.g. Rank &le; 100)</button>
                         </div>
@@ -240,7 +292,10 @@
                     <button type="button" id="runScreenBtn" class="btn btn-primary btn-block btn-lg">
                         <span class="icon">🚀</span> RUN SCREEN
                     </button>
-                    <div class="export-btn-group">
+                    <button type="button" id="openRaceBtn" class="btn btn-secondary btn-block mt-2" title="View multi-stock sprint race cumulative % return curves">
+                        <span class="icon">🏁</span> SPRINT RACE
+                    </button>
+                    <div class="export-btn-group mt-2">
                         <button type="button" id="exportXlsxBtn" class="btn btn-secondary btn-sm" title="Export formatted Excel (.xlsx)">📥 XLSX</button>
                         <button type="button" id="exportCsvBtn" class="btn btn-secondary btn-sm" title="Export standard CSV (.csv)">📄 CSV</button>
                         <button type="button" id="exportJsonBtn" class="btn btn-secondary btn-sm" title="Export JSON (.json)">📋 JSON</button>
@@ -324,6 +379,7 @@
                     <span id="activeCapBadge" class="badge badge-meta" style="display: none;"></span>
                     <span id="activeGradeBadge" class="badge badge-grade" style="display: none;"></span>
                     <span id="activeFnoBadge" class="badge badge-fno" style="display: none;">F&amp;O</span>
+                    <button type="button" class="btn btn-xs btn-outline meta-edit-trigger" id="editMetaBtn" title="Edit stock metadata (Grade, Sector, Notes)">✎ Edit</button>
                 </div>
                 <div class="drawer-status-badges">
                     <span id="activeAthDiff" class="badge badge-ath" style="display: none;">—</span>
@@ -333,6 +389,28 @@
             </div>
             <div class="drawer-header-actions">
                 <button id="drawerCloseBtn" class="drawer-close-btn" title="Close drawer (Esc)" aria-label="Close drawer">✕</button>
+            </div>
+        </div>
+
+        <!-- Inline Metadata Edit Panel (Batch U3) -->
+        <div class="drawer-meta-edit-panel" id="metaEditPanel" style="display: none;">
+            <div class="meta-edit-row">
+                <div class="meta-edit-field">
+                    <label for="metaEditGrade">Grade:</label>
+                    <input type="text" id="metaEditGrade" class="form-control form-control-xs" placeholder="e.g. A" style="width: 55px;">
+                </div>
+                <div class="meta-edit-field">
+                    <label for="metaEditSector">Sector:</label>
+                    <input type="text" id="metaEditSector" class="form-control form-control-xs" placeholder="e.g. Technology" style="width: 130px;">
+                </div>
+                <div class="meta-edit-field">
+                    <label for="metaEditNotes">Notes:</label>
+                    <input type="text" id="metaEditNotes" class="form-control form-control-xs" placeholder="Investor notes..." style="width: 150px;">
+                </div>
+                <div class="meta-edit-buttons">
+                    <button type="button" class="btn btn-xs btn-accent" id="saveMetaBtn">Save</button>
+                    <button type="button" class="btn btn-xs btn-ghost" id="cancelMetaBtn">Cancel</button>
+                </div>
             </div>
         </div>
 
@@ -446,7 +524,10 @@
         <div class="live-panel-drawer" id="livePanelDrawer">
             <div class="drawer-header">
                 <h4>Multi-Timeframe Analysis Matrix (Selected Stock)</h4>
-                <span class="drawer-meta" id="drawerMeta">Click any stock in table to inspect</span>
+                <div class="drawer-header-controls">
+                    <button type="button" class="btn btn-xs btn-outline" id="bandHistoryBtn" title="View historical changes to this stock's band settings">📜 Band History</button>
+                    <span class="drawer-meta ml-2" id="drawerMeta">Click any stock in table to inspect</span>
+                </div>
             </div>
             <div class="drawer-table-wrap">
                 <table class="live-matrix-table" id="liveMatrixTable">
@@ -467,6 +548,16 @@
                 </table>
             </div>
             <div class="drawer-signals-strip" id="drawerSignalsStrip"></div>
+
+            <!-- Historical Breakdown & Multi-Year Performance (Batch U3) -->
+            <details class="drawer-history-breakdown mt-2" id="drawerHistoryDetails">
+                <summary class="drawer-section-summary">
+                    <span>Historical Breakdown &amp; Multi-Year Performance ▾</span>
+                </summary>
+                <div class="drawer-history-content mt-2" id="drawerHistoryContent">
+                    <p class="text-muted" style="font-size: 11px;">Select a stock to view multi-year CAGRs, annual returns, and anchored sprint speeds.</p>
+                </div>
+            </details>
         </div>
     </aside>
 
@@ -496,6 +587,97 @@
             <div class="modal-footer">
                 <button class="btn btn-ghost" id="modalCancelBtn">Cancel</button>
                 <button class="btn btn-primary" id="modalSavePresetBtn">Save Preset</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Band Change History Modal (Batch U3) -->
+    <div class="modal-backdrop" id="bandHistoryModal" style="display: none;">
+        <div class="modal-card modal-card-md">
+            <div class="modal-header">
+                <h3 id="bandHistoryTitle">Band Change History</h3>
+                <button class="modal-close" id="bandHistoryCloseBtn">×</button>
+            </div>
+            <div class="modal-body">
+                <div id="bandHistoryContent" class="band-history-table-wrap">
+                    <!-- Populated dynamically -->
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary btn-sm" id="bandHistoryDoneBtn">Done</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Band Snapshots & Daily Backups Modal (Batch U3) -->
+    <div class="modal-backdrop" id="bandBackupsModal" style="display: none;">
+        <div class="modal-card modal-card-lg">
+            <div class="modal-header">
+                <h3>📦 Band Snapshots &amp; Daily Backups</h3>
+                <button class="modal-close" id="bandBackupsCloseBtn">×</button>
+            </div>
+            <div class="modal-body">
+                <p class="text-muted mb-2" style="font-size: 12px;">View and restore dated historical snapshots of discretionary band configurations (<code>data/band_backups/</code>). Restoring will safely replace active <code>data/bands.csv</code> and refresh analysis.</p>
+                <div id="bandBackupsLoading" class="text-muted p-2" style="display: none;">Loading snapshots...</div>
+                <div id="bandBackupsListContainer" class="band-backups-table-wrap">
+                    <!-- Populated dynamically -->
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary btn-sm" id="bandBackupsDoneBtn">Done</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Sprint Race Modal (Batch U3) -->
+    <div class="modal-backdrop" id="raceModal" style="display: none;">
+        <div class="modal-card modal-card-xl">
+            <div class="modal-header">
+                <div class="race-header-title">
+                    <h3>🏁 SPRINT RACE — Cumulative % Return from Fixed Anchor Date</h3>
+                </div>
+                <button class="modal-close" id="raceCloseBtn">×</button>
+            </div>
+            <div class="modal-body">
+                <div class="race-toolbar">
+                    <div class="race-control-item">
+                        <label for="raceAnchorSelect">Anchor Date:</label>
+                        <select id="raceAnchorSelect" class="form-control form-control-sm">
+                            <option value="2021-01-01" selected>2021-01-01 (Since 2021)</option>
+                            <option value="2022-01-01">2022-01-01 (Since 2022)</option>
+                            <option value="2023-01-01">2023-01-01 (Since 2023)</option>
+                            <option value="2024-01-01">2024-01-01 (Since 2024)</option>
+                            <option value="2025-01-01">2025-01-01 (Since 2025)</option>
+                            <option value="2026-01-01">2026-01-01 (Since 2026)</option>
+                        </select>
+                    </div>
+                    <div class="race-control-item">
+                        <label for="raceTopInput">Runners:</label>
+                        <input type="number" id="raceTopInput" class="form-control form-control-sm" value="12" min="1" max="30" style="width: 55px;">
+                    </div>
+                    <div class="race-control-item">
+                        <label for="raceMetricSelect">Metric:</label>
+                        <select id="raceMetricSelect" class="form-control form-control-sm">
+                            <option value="SPA_A21" selected>SPA_A21 (Sprint from 2021)</option>
+                            <option value="S4">S4 (Speed 4w)</option>
+                            <option value="ACCEL_L">ACCEL_L (Accel vs 1yr)</option>
+                        </select>
+                    </div>
+                    <div class="race-control-item">
+                        <label for="raceSymbolsInput">Or Symbols:</label>
+                        <input type="text" id="raceSymbolsInput" class="form-control form-control-sm" placeholder="Leave empty for leaders, or INFY,TCS..." style="width: 220px;">
+                    </div>
+                    <button type="button" class="btn btn-accent btn-sm" id="runRaceBtn">Run Race</button>
+                </div>
+                <div id="raceLoadingOverlay" class="race-loading" style="display: none;">
+                    <div class="spinner"></div>
+                    <span>Computing sprint race trajectories...</span>
+                </div>
+                <div id="raceChartCanvas" class="race-chart-viewport"></div>
+                <div id="raceLeaderboardContainer" class="race-leaderboard-wrap mt-2"></div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary btn-sm" id="raceDoneBtn">Close</button>
             </div>
         </div>
     </div>

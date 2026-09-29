@@ -27,7 +27,7 @@ Work proceeds strictly one approved layer at a time. Each layer is completed, th
 | **Step 8** | **Calculation Modules** | `src/yogi/calculation/` | **COMPLETED / FROZEN** | [ADR-003](decisions.md#adr-003-preservation-of-verified-financial-mathematics), [ADR-008](decisions.md#adr-008-calculation-engine-modularization--four-mathematical-pillars) |
 | **Step 9** | **Screening Engine** | `filter/`, `ranking/`, `selection/`, `strategy/` | **COMPLETED / FROZEN** | [ADR-002](decisions.md#adr-002-separation-of-filter-strategy-ranking-selection-and-results), [ADR-005](decisions.md#adr-005-core-configuration-scope-and-screeningquery-separation) |
 | **Step 10** | **Results Engine** | `src/yogi/results/` | **COMPLETED / FROZEN** | [ADR-002](decisions.md#adr-002-separation-of-filter-strategy-ranking-selection-and-results) |
-| **Step 11** | **Cockpit UI & Master UX** | `src/yogi/cockpit/`, `src/yogi/storage/`, `src/yogi/data/` | **COMPLETED / FROZEN (Prototype)**<br/>• Batch 1 Parity (Candlesticks & Sprint Curve)<br/>• Batch 2 Parity (Cross-Timeframe Bands)<br/>• Batch 3A Parity (Technical-Series Exposure)<br/>• Batch 3B Parity (Price / Volatility Technical Indicators)<br/>• Batch 3C Parity (Oscillators: RSI, MACD, OBV, MFI)<br/>• Batch 3D Parity (YOGI Custom Curves: Sprint Speed, Acceleration, Band Distance, YOGI ROC)<br/>• Batch 4 Parity (Persistent Bands: CsvBandsRepository, Audit Trail, Backups & Restore)<br/>• Batch 5 Parity (Market Metadata, Instrument Classification, NSE F&O Universe, Persistent Security Metadata, Pipeline Enrichment, Cockpit Meta API) | [ADR-010](decisions.md#adr-010-cockpit-live-twelve-data-provider-connection--demo-isolation) |
+| **Step 11** | **Cockpit UI & Master UX** | `src/yogi/cockpit/`, `src/yogi/storage/`, `src/yogi/data/` | **COMPLETED / FROZEN (Prototype)**<br/>• Batch 1 Parity (Candlesticks & Sprint Curve)<br/>• Batch 2 Parity (Cross-Timeframe Bands)<br/>• Batch 3A Parity (Technical-Series Exposure)<br/>• Batch 3B Parity (Price / Volatility Technical Indicators)<br/>• Batch 3C Parity (Oscillators: RSI, MACD, OBV, MFI)<br/>• Batch 3D Parity (YOGI Custom Curves: Sprint Speed, Acceleration, Band Distance, YOGI ROC)<br/>• Batch 4 Parity (Persistent Bands: CsvBandsRepository, Audit Trail, Backups & Restore)<br/>• Batch 5 Parity (Market Metadata, Instrument Classification, NSE F&O Universe, Persistent Security Metadata, Pipeline Enrichment, Cockpit Meta API)<br/>• Batch U1 (Stock Detail Technical Analysis Workspace)<br/>• Batch U2 (Unified Screening / Configuration Workspace)<br/>• Batch U3 (Power Controls & Secondary Investor Workflows) | [ADR-010](decisions.md#adr-010-cockpit-live-twelve-data-provider-connection--demo-isolation) |
 | **Phase Boundary** | **Mentor Review & UX Definition** | `docs/` / UI specs | **CURRENT NEXT PHASE** | — |
 | **Step 12** | **Production Operations** | `src/yogi/ops/` / cold storage | **FUTURE — NOT STARTED** | — |
 
@@ -107,14 +107,14 @@ Work proceeds strictly one approved layer at a time. Each layer is completed, th
   - `RaceVisualizerService` (`src/yogi/cockpit/services/race.py`): Packaging multi-symbol anchored performance curves for `/api/race`.
   - `router.py` & `schemas.py`: REST HTTP transport endpoints with Pydantic v2 validation cleanly separating analytical screening intent from presentation column projection, with explicit HTTP status mapping (401, 429, 503, 404).
   - Single-Page Application (`src/yogi/cockpit/static/*`): Dark-theme financial cockpit dashboard featuring TradingView Lightweight Charts, interactive tabular results grid, Stock Detail Drawer with 6-timeframe matrix, discretionary band width adjustment, live Twelve Data provider toggle ([ADR-010](decisions.md#adr-010-cockpit-live-twelve-data-provider-connection--demo-isolation)), and one-click XLSX/CSV export.
-- Tested with 150 Cockpit unit and integration tests.
+- Tested with 188 Cockpit unit and integration tests across Batches 1–5, U1, U2, and U3.
 
 ### Persistent Storage Engine (Batches 4 & 5 Frozen)
 - `src/yogi/storage/bands.py`: `CsvBandsRepository` managing manual band levels, append-only audit trail `data/bands/bands_audit.log`, automated daily backups in `data/bands/backups/`, and point-in-time restore.
 - `src/yogi/storage/metadata.py`: `CsvMetadataRepository` managing symbol metadata (`name, sector, grade, mcap, fno, instr, grp`) with atomic `.tmp` staging and crash resilience.
 - Tested with 36 storage unit and integration tests.
 
-**Total Test Baseline:** **557 tests passing** across all suites.
+**Total Test Baseline:** **595 tests passing** across all suites.
 
 ---
 

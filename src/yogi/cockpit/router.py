@@ -376,112 +376,6 @@ def run_strategy(
     return QueryResultOut.from_core(payload)
 
 
-@router.get("/bands/{symbol}", response_model=BandsResponseOut)
-def get_bands(
-    symbol: str,
-    app_state: AppState = Depends(get_app_state),
-) -> BandsResponseOut:
-    """Retrieve all discretionary band widths for a symbol across standard timeframes."""
-    if app_state.bands_repo is None:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Bands repository not configured.",
-        )
-
-    sym = symbol.strip().upper()
-    bands_map = app_state.bands_repo.get_all_bands(sym)
-    return BandsResponseOut(symbol=sym, bands=dict(bands_map))
-
-
-@router.put("/bands/{symbol}", response_model=BandUpdateOut)
-def update_band(
-    symbol: str,
-    req: BandUpdateIn,
-    app_state: AppState = Depends(get_app_state),
-) -> BandUpdateOut:
-    """Update a discretionary band width for a symbol and timeframe."""
-    if app_state.bands_repo is None:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Bands repository not configured.",
-        )
-
-    sym = symbol.strip().upper()
-    val = app_state.bands_repo.set_band(
-        symbol=sym,
-        timeframe=req.timeframe,
-        value=req.value,
-        who="cockpit",
-        source="api",
-    )
-    app_state.clear_panel_cache()
-    return BandUpdateOut(symbol=sym, timeframe=req.timeframe, value=val, success=True)
-
-
-@router.get("/bands/log/{symbol}", response_model=BandLogResponseOut)
-def get_band_log_symbol(
-    symbol: str,
-    limit: int = Query(default=60, ge=1, le=500),
-    app_state: AppState = Depends(get_app_state),
-) -> BandLogResponseOut:
-    """Retrieve reverse-chronological band change history for a single symbol."""
-    if app_state.bands_repo is None:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Bands repository not configured.",
-        )
-    sym = symbol.strip().upper()
-    resolved_limit = limit if isinstance(limit, int) else getattr(limit, "default", 60)
-    if hasattr(app_state.bands_repo, "get_history"):
-        history = app_state.bands_repo.get_history(symbol=sym, limit=resolved_limit)
-        items = [
-            BandAuditItemOut(
-                when=e.when,
-                symbol=e.symbol,
-                timeframe=e.timeframe,
-                old_pct=e.old_pct,
-                new_pct=e.new_pct,
-                changed_by=e.changed_by,
-                source=e.source,
-            )
-            for e in history
-        ]
-    else:
-        items = []
-    return BandLogResponseOut(symbol=sym, changes=items)
-
-
-@router.get("/bands/log", response_model=BandGlobalLogResponseOut)
-def get_band_log_all(
-    limit: int = Query(default=300, ge=1, le=1000),
-    app_state: AppState = Depends(get_app_state),
-) -> BandGlobalLogResponseOut:
-    """Retrieve global reverse-chronological band change history across all symbols."""
-    if app_state.bands_repo is None:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Bands repository not configured.",
-        )
-    resolved_limit = limit if isinstance(limit, int) else getattr(limit, "default", 300)
-    if hasattr(app_state.bands_repo, "get_history"):
-        history = app_state.bands_repo.get_history(symbol=None, limit=resolved_limit)
-        items = [
-            BandAuditItemOut(
-                when=e.when,
-                symbol=e.symbol,
-                timeframe=e.timeframe,
-                old_pct=e.old_pct,
-                new_pct=e.new_pct,
-                changed_by=e.changed_by,
-                source=e.source,
-            )
-            for e in history
-        ]
-    else:
-        items = []
-    return BandGlobalLogResponseOut(changes=items)
-
-
 @router.get("/bands/backups", response_model=BandBackupsResponseOut)
 def get_band_backups(
     app_state: AppState = Depends(get_app_state),
@@ -582,6 +476,112 @@ def restore_band_backup(
         filename=filename,
         stocks=count,
     )
+
+
+@router.get("/bands/log", response_model=BandGlobalLogResponseOut)
+def get_band_log_all(
+    limit: int = Query(default=300, ge=1, le=1000),
+    app_state: AppState = Depends(get_app_state),
+) -> BandGlobalLogResponseOut:
+    """Retrieve global reverse-chronological band change history across all symbols."""
+    if app_state.bands_repo is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Bands repository not configured.",
+        )
+    resolved_limit = limit if isinstance(limit, int) else getattr(limit, "default", 300)
+    if hasattr(app_state.bands_repo, "get_history"):
+        history = app_state.bands_repo.get_history(symbol=None, limit=resolved_limit)
+        items = [
+            BandAuditItemOut(
+                when=e.when,
+                symbol=e.symbol,
+                timeframe=e.timeframe,
+                old_pct=e.old_pct,
+                new_pct=e.new_pct,
+                changed_by=e.changed_by,
+                source=e.source,
+            )
+            for e in history
+        ]
+    else:
+        items = []
+    return BandGlobalLogResponseOut(changes=items)
+
+
+@router.get("/bands/log/{symbol}", response_model=BandLogResponseOut)
+def get_band_log_symbol(
+    symbol: str,
+    limit: int = Query(default=60, ge=1, le=500),
+    app_state: AppState = Depends(get_app_state),
+) -> BandLogResponseOut:
+    """Retrieve reverse-chronological band change history for a single symbol."""
+    if app_state.bands_repo is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Bands repository not configured.",
+        )
+    sym = symbol.strip().upper()
+    resolved_limit = limit if isinstance(limit, int) else getattr(limit, "default", 60)
+    if hasattr(app_state.bands_repo, "get_history"):
+        history = app_state.bands_repo.get_history(symbol=sym, limit=resolved_limit)
+        items = [
+            BandAuditItemOut(
+                when=e.when,
+                symbol=e.symbol,
+                timeframe=e.timeframe,
+                old_pct=e.old_pct,
+                new_pct=e.new_pct,
+                changed_by=e.changed_by,
+                source=e.source,
+            )
+            for e in history
+        ]
+    else:
+        items = []
+    return BandLogResponseOut(symbol=sym, changes=items)
+
+
+@router.get("/bands/{symbol}", response_model=BandsResponseOut)
+def get_bands(
+    symbol: str,
+    app_state: AppState = Depends(get_app_state),
+) -> BandsResponseOut:
+    """Retrieve all discretionary band widths for a symbol across standard timeframes."""
+    if app_state.bands_repo is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Bands repository not configured.",
+        )
+
+    sym = symbol.strip().upper()
+    bands_map = app_state.bands_repo.get_all_bands(sym)
+    return BandsResponseOut(symbol=sym, bands=dict(bands_map))
+
+
+@router.put("/bands/{symbol}", response_model=BandUpdateOut)
+def update_band(
+    symbol: str,
+    req: BandUpdateIn,
+    app_state: AppState = Depends(get_app_state),
+) -> BandUpdateOut:
+    """Update a discretionary band width for a symbol and timeframe."""
+    if app_state.bands_repo is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Bands repository not configured.",
+        )
+
+    sym = symbol.strip().upper()
+    val = app_state.bands_repo.set_band(
+        symbol=sym,
+        timeframe=req.timeframe,
+        value=req.value,
+        who="cockpit",
+        source="api",
+    )
+    app_state.clear_panel_cache()
+    return BandUpdateOut(symbol=sym, timeframe=req.timeframe, value=val, success=True)
 
 
 # -----------------------------------------------------------------------------

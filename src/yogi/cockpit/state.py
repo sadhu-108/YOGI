@@ -589,6 +589,18 @@ class AppState:
                 if dmi_key in row:
                     key_metrics[dmi_key] = row.get(dmi_key)
 
+        # Historical breakdown enrichment (CAGR, Annual Returns, Sprints)
+        for k, v in row.items():
+            if (
+                k.startswith("CAGR_")
+                or k.startswith("Y2")
+                or k == "Y_OLDER"
+                or k.startswith("SPA_")
+                or k.startswith("SPR_")
+            ):
+                if k not in key_metrics:
+                    key_metrics[k] = v
+
         return StockDetailPanelOut(
             symbol=symbol,
             exchange=row.get("exchange", "NSE"),

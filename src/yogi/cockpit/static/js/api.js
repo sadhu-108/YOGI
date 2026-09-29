@@ -145,6 +145,51 @@ const API = {
         return await res.json();
     },
 
+    async getBandLog(symbol, limit = 60) {
+        const res = await fetch(`/api/bands/log/${encodeURIComponent(symbol)}?limit=${limit}`);
+        if (!res.ok) await _handleError(res, `Failed to fetch band history for '${symbol}'`);
+        return await res.json();
+    },
+
+    async getBandBackups() {
+        const res = await fetch('/api/bands/backups');
+        if (!res.ok) await _handleError(res, 'Failed to fetch band backups');
+        return await res.json();
+    },
+
+    async restoreBandBackup(filename) {
+        const res = await fetch(`/api/bands/restore/${encodeURIComponent(filename)}`, {
+            method: 'POST'
+        });
+        if (!res.ok) await _handleError(res, `Failed to restore band backup '${filename}'`);
+        return await res.json();
+    },
+
+    async getMetadata(symbol, exchange = 'NSE') {
+        const res = await fetch(`/api/meta/${encodeURIComponent(symbol)}?exchange=${encodeURIComponent(exchange)}`);
+        if (!res.ok) await _handleError(res, `Failed to fetch metadata for '${symbol}'`);
+        return await res.json();
+    },
+
+    async updateMetadata(symbol, field, value, exchange = 'NSE') {
+        const res = await fetch(`/api/meta/${encodeURIComponent(symbol)}?exchange=${encodeURIComponent(exchange)}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ field, value })
+        });
+        if (!res.ok) await _handleError(res, `Failed to update metadata for '${symbol}'`);
+        return await res.json();
+    },
+
+    async getRace({ symbols = null, anchor = '2021-01-01', top = 15, metric = 'SPA_A21', exchange = null } = {}) {
+        let url = `/api/race?anchor=${encodeURIComponent(anchor)}&top=${top}&metric=${encodeURIComponent(metric)}`;
+        if (symbols) url += `&symbols=${encodeURIComponent(symbols)}`;
+        if (exchange) url += `&exchange=${encodeURIComponent(exchange)}`;
+        const res = await fetch(url);
+        if (!res.ok) await _handleError(res, 'Failed to fetch sprint race data');
+        return await res.json();
+    },
+
     async exportScreen(exportRequest, filename = 'yogi_export') {
         const res = await fetch('/api/export', {
             method: 'POST',

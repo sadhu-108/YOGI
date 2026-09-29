@@ -996,18 +996,37 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
     }
 
-    // Quick Band Shortcuts
-    document.getElementById('quickBandAboveBtn')?.addEventListener('click', () => {
-        createRuleRow(rulesContainer, { field: 'BANDST_M', op: '==', value: 'ABOVE' });
-    });
+    // Grouped Band Position Shortcut Handler (Batch U3)
+    document.getElementById('applyBandPositionBtn')?.addEventListener('click', () => {
+        const select = document.getElementById('quickBandPositionSelect');
+        const pos = select?.value;
+        if (!pos) {
+            showToast('Please select a band position shortcut first.', 'info');
+            return;
+        }
 
-    document.getElementById('quickBandOutsideBtn')?.addEventListener('click', () => {
-        createRuleRow(rulesContainer, { field: 'OUT_ABOVE', op: '!=', value: '' });
-    });
+        if (pos === 'above_m') {
+            createRuleRow(rulesContainer, { field: 'BANDST_M', op: '==', value: 'ABOVE' });
+        } else if (pos === 'inside_m') {
+            createRuleRow(rulesContainer, { field: 'BANDST_M', op: '==', value: 'IN' });
+        } else if (pos === 'below_m') {
+            createRuleRow(rulesContainer, { field: 'BANDST_M', op: '==', value: 'BELOW' });
+        } else if (pos === 'outside_2plus') {
+            createNestedGroupCard(rulesContainer, {
+                match: 'any',
+                rules: [
+                    { field: 'N_ABOVE', op: '>=', value: 2 },
+                    { field: 'N_BELOW', op: '>=', value: 2 }
+                ]
+            });
+        } else if (pos === 'reaction') {
+            createRuleRow(rulesContainer, { field: 'BANDST_Y', op: '==', value: 'BELOW' });
+            createRuleRow(rulesContainer, { field: 'EMA_W', op: '==', value: 'upcut' });
+        }
 
-    document.getElementById('quickReactionTradeBtn')?.addEventListener('click', () => {
-        createRuleRow(rulesContainer, { field: 'BANDST_Y', op: '==', value: 'BELOW' });
-        createRuleRow(rulesContainer, { field: 'EMA_W', op: '==', value: 'upcut' });
+        select.value = '';
+        onConditionChanged();
+        showToast('Applied band position shortcut rule.', 'info');
     });
 
     // -------------------------------------------------------------------------
@@ -1077,6 +1096,28 @@ document.addEventListener('DOMContentLoaded', async () => {
         addCutoffRow('RANK_M', 100);
     });
 
+    // Multi-Period Rank Cutoff Convenience Templates (Batch U3)
+    document.getElementById('cutoffTemplateSelect')?.addEventListener('change', (e) => {
+        const val = e.target.value;
+        if (!val) return;
+
+        if (val === 'top100_m_y') {
+            addCutoffRow('RANK_M', 100);
+            addCutoffRow('RANK_Y', 100);
+        } else if (val === 'top50_all_q') {
+            addCutoffRow('RANK_Q', 50);
+            addCutoffRow('RANK_H', 50);
+        } else if (val === 'top100_all_tf') {
+            addCutoffRow('RANK_W', 100);
+            addCutoffRow('RANK_M', 100);
+            addCutoffRow('RANK_Y', 100);
+        }
+
+        e.target.value = '';
+        onConditionChanged();
+        showToast('Applied rank cutoff template.', 'info');
+    });
+
     // -------------------------------------------------------------------------
     // 9. Display Columns Picker
     // -------------------------------------------------------------------------
@@ -1108,7 +1149,13 @@ document.addEventListener('DOMContentLoaded', async () => {
         const exch = document.getElementById('universeExchange')?.value || 'NSE';
         const seg = document.getElementById('universeSegment')?.value || 'ALL';
         const segLabel = seg === 'FNO' ? ' (F&O)' : (seg === 'CASH' ? ' (Cash)' : '');
-        if (universeEl) universeEl.textContent = `Universe: ${exch}${segLabel}`;
+        let universeText = `Universe: ${exch}${segLabel}`;
+        const sector = document.getElementById('universeSectorSelect')?.value;
+        if (sector) universeText += ` · ${sector}`;
+        const instr = document.getElementById('universeInstrSelect')?.value;
+        if (instr && instr !== 'ALL') universeText += ` · ${instr}`;
+        if (document.getElementById('universeMicrocapToggle')?.checked) universeText += ' · <100cr';
+        if (universeEl) universeEl.textContent = universeText;
 
         if (presetEl) {
             if (loadedPresetName) {
@@ -1232,29 +1279,44 @@ document.addEventListener('DOMContentLoaded', async () => {
         const rootNot = document.getElementById('rootGroupNotToggle')?.classList.contains('active') || false;
         const filterGroup = extractFilterGroup(rulesContainer, rootMatch, rootNot);
 
-        // Segment filtering (F&O vs Cash)
+        // Universe filtering (Segment, Sector, Instrument Type, Microcap)
         let activeFilterGroup = filterGroup;
         const segment = document.getElementById('universeSegment')?.value || 'ALL';
-        const segmentRules = [];
+        const universeRules = [];
         if (segment === 'FNO') {
-            segmentRules.push({ field: 'fno', op: '==', value: 'Y' });
+            universeRules.push({ field: 'fno', op: '==', value: 'Y' });
         } else if (segment === 'CASH') {
-            segmentRules.push({ field: 'fno', op: '==', value: 'N' });
+            universeRules.push({ field: 'fno', op: '==', value: 'N' });
         }
 
-        if (segmentRules.length > 0) {
+        const sectorVal = document.getElementById('universeSectorSelect')?.value || '';
+        if (sectorVal) {
+            universeRules.push({ field: 'sector', op: '==', value: sectorVal });
+        }
+
+        const instrVal = document.getElementById('universeInstrSelect')?.value || '';
+        if (instrVal && instrVal !== 'ALL') {
+            universeRules.push({ field: 'instr', op: '==', value: instrVal });
+        }
+
+        const microcapChecked = document.getElementById('universeMicrocapToggle')?.checked || false;
+        if (microcapChecked) {
+            universeRules.push({ field: 'mcap', op: '<', value: 100 });
+        }
+
+        if (universeRules.length > 0) {
             if (!activeFilterGroup) {
-                activeFilterGroup = { match: 'all', rules: segmentRules, is_negated: false };
+                activeFilterGroup = { match: 'all', rules: universeRules, is_negated: false };
             } else if (activeFilterGroup.match === 'all' && !activeFilterGroup.is_negated) {
                 activeFilterGroup = {
                     match: 'all',
-                    rules: [...activeFilterGroup.rules, ...segmentRules],
+                    rules: [...activeFilterGroup.rules, ...universeRules],
                     is_negated: false
                 };
             } else {
                 activeFilterGroup = {
                     match: 'all',
-                    rules: [activeFilterGroup, ...segmentRules],
+                    rules: [activeFilterGroup, ...universeRules],
                     is_negated: false
                 };
             }
@@ -1308,7 +1370,38 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     document.getElementById('runScreenBtn')?.addEventListener('click', runScreen);
 
+    const discoveredSectors = new Set();
+
+    function updateDiscoveredSectors(rows) {
+        const sectorSelect = document.getElementById('universeSectorSelect');
+        if (!sectorSelect || !rows || rows.length === 0) return;
+
+        let addedNew = false;
+        rows.forEach(r => {
+            if (r.sector && typeof r.sector === 'string' && r.sector.trim()) {
+                const s = r.sector.trim();
+                if (!discoveredSectors.has(s)) {
+                    discoveredSectors.add(s);
+                    addedNew = true;
+                }
+            }
+        });
+
+        if (addedNew) {
+            const currentVal = sectorSelect.value;
+            const sortedSectors = Array.from(discoveredSectors).sort();
+            sectorSelect.innerHTML = '<option value="">All Sectors</option>' +
+                sortedSectors.map(s => `<option value="${s}">${s}</option>`).join('');
+            sectorSelect.value = currentVal;
+        }
+    }
+
     function updateTableResults(payload) {
+        // Update discovered sectors from incoming rows
+        if (payload.rows && payload.rows.length > 0) {
+            updateDiscoveredSectors(payload.rows);
+        }
+
         // Update Funnel Telemetry
         const fUniverse = document.getElementById('funnelUniverse');
         const fQualified = document.getElementById('funnelQualified');
@@ -1877,8 +1970,13 @@ document.addEventListener('DOMContentLoaded', async () => {
             }
 
             function renderBandWidthCell(row) {
-                if (row.band_width === null || row.band_width === undefined) return '<span class="val-null">—</span>';
-                return `<span>${(row.band_width * 100).toFixed(1)}%</span>`;
+                const val = (row.band_width !== null && row.band_width !== undefined) ? (row.band_width * 100).toFixed(1) : '';
+                return `
+                    <div class="matrix-band-edit-wrap">
+                        <input type="number" step="0.5" class="matrix-band-input" data-tf="${row.timeframe}" value="${val}" placeholder="—" />
+                        <button type="button" class="btn-matrix-save" data-tf="${row.timeframe}" title="Save ${row.timeframe} band width">✓</button>
+                    </div>
+                `;
             }
 
             function renderLevelCell(val) {
@@ -1928,6 +2026,42 @@ document.addEventListener('DOMContentLoaded', async () => {
                     ${tfs.map(r => `<td>${renderLevelCell(r.band_lower)}</td>`).join('')}
                 </tr>
             `;
+
+            // Inline 6-Timeframe Band Tuning Handlers (Batch U3)
+            matrixBody.querySelectorAll('.btn-matrix-save').forEach(btn => {
+                btn.addEventListener('click', async (e) => {
+                    const tf = e.currentTarget.getAttribute('data-tf');
+                    const input = matrixBody.querySelector(`.matrix-band-input[data-tf="${tf}"]`);
+                    if (!input || !activeSymbol) return;
+                    const val = parseFloat(input.value);
+                    if (isNaN(val) || val <= 0) {
+                        showToast('Please enter a valid band width percentage (e.g. 20 for 20%)', 'error');
+                        return;
+                    }
+                    try {
+                        btn.disabled = true;
+                        btn.textContent = '...';
+                        await API.updateBand(activeSymbol, tf, val / 100);
+                        showToast(`${tf} band width updated to ${val}%`, 'success');
+                        await loadChartData(activeSymbol);
+                        await loadStockPanel(activeSymbol);
+                    } catch (err) {
+                        showToast(`Failed to update band: ${err.message}`, 'error');
+                        btn.disabled = false;
+                        btn.textContent = '✓';
+                    }
+                });
+            });
+
+            matrixBody.querySelectorAll('.matrix-band-input').forEach(inp => {
+                inp.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter') {
+                        const tf = inp.getAttribute('data-tf');
+                        const saveBtn = matrixBody.querySelector(`.btn-matrix-save[data-tf="${tf}"]`);
+                        if (saveBtn) saveBtn.click();
+                    }
+                });
+            });
 
             // Build Key Technical Signals Strip
             const signalsStrip = document.getElementById('drawerSignalsStrip');
@@ -1979,6 +2113,118 @@ document.addEventListener('DOMContentLoaded', async () => {
                 }
 
                 signalsStrip.innerHTML = chipsHtml;
+            }
+
+            // Historical Period Breakdown & Sprints (Batch U3)
+            const historyContent = document.getElementById('drawerHistoryContent');
+            if (historyContent) {
+                let histHtml = '';
+
+                // Sprints (S4, S13, S26, S52, Accel, Consistency)
+                histHtml += `
+                    <div class="history-block">
+                        <div class="history-block-title">Sprint Velocity &amp; Consistency</div>
+                        <div class="history-metrics-grid">
+                            <div class="history-metric-card"><span class="hm-label">S4 (4w):</span><span class="hm-val">${km.S4 !== null && km.S4 !== undefined ? `${km.S4.toFixed(1)}%/wk` : '—'}</span></div>
+                            <div class="history-metric-card"><span class="hm-label">S13 (13w):</span><span class="hm-val">${km.S13 !== null && km.S13 !== undefined ? `${km.S13.toFixed(1)}%/wk` : '—'}</span></div>
+                            <div class="history-metric-card"><span class="hm-label">S26 (26w):</span><span class="hm-val">${km.S26 !== null && km.S26 !== undefined ? `${km.S26.toFixed(1)}%/wk` : '—'}</span></div>
+                            <div class="history-metric-card"><span class="hm-label">S52 (52w):</span><span class="hm-val">${km.S52 !== null && km.S52 !== undefined ? `${km.S52.toFixed(1)}%/wk` : '—'}</span></div>
+                            <div class="history-metric-card"><span class="hm-label">Short Accel:</span><span class="hm-val">${panel.accel_s !== null && panel.accel_s !== undefined ? `${panel.accel_s >= 0 ? '+' : ''}${panel.accel_s.toFixed(2)}` : '—'}</span></div>
+                            <div class="history-metric-card"><span class="hm-label">Long Accel:</span><span class="hm-val">${panel.accel_l !== null && panel.accel_l !== undefined ? `${panel.accel_l >= 0 ? '+' : ''}${panel.accel_l.toFixed(2)}` : '—'}</span></div>
+                            <div class="history-metric-card"><span class="hm-label">Sprint Consist:</span><span class="hm-val">${panel.spr_consist !== null && panel.spr_consist !== undefined ? `${panel.spr_consist.toFixed(0)}%` : '—'}</span></div>
+                        </div>
+                    </div>
+                `;
+
+                // Multi-Year CAGRs
+                const cagrKeys = Object.keys(km).filter(k => k.startsWith('CAGR_')).sort();
+                if (cagrKeys.length > 0) {
+                    histHtml += `
+                        <div class="history-block">
+                            <div class="history-block-title">Compound Annual Growth (CAGR)</div>
+                            <div class="history-metrics-grid">
+                                ${cagrKeys.map(k => {
+                                    const yrs = k.replace('CAGR_', '');
+                                    const val = km[k];
+                                    const formatted = (val !== null && val !== undefined) ? `${val >= 0 ? '+' : ''}${val.toFixed(1)}%` : '—';
+                                    const cls = (val !== null && val !== undefined && val >= 0) ? 'val-positive' : 'val-negative';
+                                    return `<div class="history-metric-card"><span class="hm-label">${yrs}Y CAGR:</span><span class="hm-val ${cls}">${formatted}</span></div>`;
+                                }).join('')}
+                            </div>
+                        </div>
+                    `;
+                }
+
+                // Fixed-Date Anchored Sprints (SPA_A21 .. SPA_A26)
+                const spaKeys = Object.keys(km).filter(k => k.startsWith('SPA_A')).sort();
+                if (spaKeys.length > 0) {
+                    histHtml += `
+                        <div class="history-block">
+                            <div class="history-block-title">Fixed-Date Anchored Sprints</div>
+                            <div class="history-metrics-grid">
+                                ${spaKeys.map(k => {
+                                    const yr = k.replace('SPA_A', '20');
+                                    const val = km[k];
+                                    const formatted = (val !== null && val !== undefined) ? `${val >= 0 ? '+' : ''}${val.toFixed(1)}%` : '—';
+                                    const cls = (val !== null && val !== undefined && val >= 0) ? 'val-positive' : 'val-negative';
+                                    return `<div class="history-metric-card"><span class="hm-label">Jan ${yr}:</span><span class="hm-val ${cls}">${formatted}</span></div>`;
+                                }).join('')}
+                            </div>
+                        </div>
+                    `;
+                }
+
+                // Annual Returns (Y2025, Y2024, etc.)
+                const yearKeys = Object.keys(km).filter(k => k.startsWith('Y20') || k === 'Y_OLDER').sort().reverse();
+                if (yearKeys.length > 0) {
+                    histHtml += `
+                        <div class="history-block">
+                            <div class="history-block-title">Calendar Year Returns</div>
+                            <div class="history-metrics-grid">
+                                ${yearKeys.map(k => {
+                                    const yr = k === 'Y_OLDER' ? 'Older' : k.replace('Y', '');
+                                    const val = km[k];
+                                    const formatted = (val !== null && val !== undefined) ? `${val >= 0 ? '+' : ''}${val.toFixed(1)}%` : '—';
+                                    const cls = (val !== null && val !== undefined && val >= 0) ? 'val-positive' : 'val-negative';
+                                    return `<div class="history-metric-card"><span class="hm-label">${yr}:</span><span class="hm-val ${cls}">${formatted}</span></div>`;
+                                }).join('')}
+                            </div>
+                        </div>
+                    `;
+                }
+
+                historyContent.innerHTML = histHtml;
+            }
+
+            // Sync metadata edit panel initial state
+            const editSector = document.getElementById('metaEditSector') || document.getElementById('editMetaSector');
+            const editGrade = document.getElementById('metaEditGrade') || document.getElementById('editMetaGrade');
+            const editNotes = document.getElementById('metaEditNotes') || document.getElementById('editMetaNotes');
+            if (editSector) editSector.value = panel.sector || '';
+            if (editGrade) editGrade.value = panel.grade || '';
+            if (editNotes) editNotes.value = '';
+
+            const editBtn = document.getElementById('editMetaBtn');
+            const editPanel = document.getElementById('metaEditPanel');
+            if (editBtn && editPanel) {
+                editBtn.onclick = async () => {
+                    const isHidden = editPanel.style.display === 'none';
+                    if (isHidden) {
+                        editPanel.style.display = 'block';
+                        try {
+                            const meta = await API.getMetadata(activeSymbol, panel.exchange || 'NSE');
+                            if (meta) {
+                                if (editSector) editSector.value = meta.sector || '';
+                                if (editGrade) editGrade.value = meta.grade || '';
+                                if (editNotes) editNotes.value = meta.notes || '';
+                            }
+                        } catch (err) {
+                            console.warn('Could not fetch extra metadata notes:', err);
+                        }
+                    } else {
+                        editPanel.style.display = 'none';
+                    }
+                };
             }
         } catch (err) {
             if (activeSymbol === target && currentStockDrawerRequestId === currentId) {
@@ -2113,6 +2359,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Universe selectors change listeners
     document.getElementById('universeExchange')?.addEventListener('change', onConditionChanged);
     document.getElementById('universeSegment')?.addEventListener('change', onConditionChanged);
+    document.getElementById('universeSectorSelect')?.addEventListener('change', onConditionChanged);
+    document.getElementById('universeInstrSelect')?.addEventListener('change', onConditionChanged);
+    document.getElementById('universeMicrocapToggle')?.addEventListener('change', onConditionChanged);
 
     // Static guide buttons in initial empty table state
     document.getElementById('guideDemoBtn')?.addEventListener('click', loadDemoData);
@@ -2134,6 +2383,437 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.getElementById('exportXlsxBtn')?.addEventListener('click', () => triggerExport('xlsx'));
     document.getElementById('exportCsvBtn')?.addEventListener('click', () => triggerExport('csv'));
     document.getElementById('exportJsonBtn')?.addEventListener('click', () => triggerExport('json'));
+
+    // -------------------------------------------------------------------------
+    // 13B. Batch U3 Power Controls: Metadata, History, Backups, Sprint Race
+    // -------------------------------------------------------------------------
+    // A. Security Metadata Editing
+    document.getElementById('cancelMetaBtn')?.addEventListener('click', () => {
+        const editPanel = document.getElementById('metaEditPanel');
+        if (editPanel) editPanel.style.display = 'none';
+    });
+
+    document.getElementById('saveMetaBtn')?.addEventListener('click', async () => {
+        if (!activeSymbol) return;
+        const editPanel = document.getElementById('metaEditPanel');
+        const saveBtn = document.getElementById('saveMetaBtn');
+        const sectorVal = (document.getElementById('metaEditSector') || document.getElementById('editMetaSector'))?.value.trim();
+        const gradeVal = (document.getElementById('metaEditGrade') || document.getElementById('editMetaGrade'))?.value.trim();
+        const notesVal = (document.getElementById('metaEditNotes') || document.getElementById('editMetaNotes'))?.value.trim();
+
+        try {
+            if (saveBtn) saveBtn.disabled = true;
+            await API.updateMetadata(activeSymbol, 'sector', sectorVal);
+            await API.updateMetadata(activeSymbol, 'grade', gradeVal);
+            await API.updateMetadata(activeSymbol, 'notes', notesVal);
+            showToast(`Metadata saved for ${activeSymbol}`, 'success');
+            if (editPanel) editPanel.style.display = 'none';
+            await loadStockPanel(activeSymbol);
+        } catch (err) {
+            if (err.message && err.message.includes('403')) {
+                showToast('Metadata update is disabled in Demo Mode.', 'warning');
+            } else {
+                showToast(`Metadata save failed: ${err.message}`, 'error');
+            }
+        } finally {
+            if (saveBtn) saveBtn.disabled = false;
+        }
+    });
+
+    // B. Band Change History Popover
+    const bandHistoryModal = document.getElementById('bandHistoryModal');
+    const closeBandHistoryBtn = document.getElementById('closeBandHistoryBtn');
+    const bandHistoryBtn = document.getElementById('bandHistoryBtn');
+
+    if (bandHistoryBtn) {
+        bandHistoryBtn.addEventListener('click', async () => {
+            if (!activeSymbol || !bandHistoryModal) return;
+            bandHistoryModal.style.display = 'flex';
+            const titleEl = document.getElementById('bandHistoryTitle');
+            const bodyEl = document.getElementById('bandHistoryBody');
+            if (titleEl) titleEl.textContent = `Band Change History — ${activeSymbol}`;
+            if (bodyEl) bodyEl.innerHTML = '<div class="empty-state">Loading history...</div>';
+
+            try {
+                const data = await API.getBandLog(activeSymbol, 60);
+                const changes = data.changes || [];
+                if (changes.length === 0) {
+                    bodyEl.innerHTML = `<div class="empty-state">No band adjustment history recorded for ${activeSymbol}.</div>`;
+                    return;
+                }
+                bodyEl.innerHTML = `
+                    <table class="history-table">
+                        <thead>
+                            <tr>
+                                <th>Timestamp</th>
+                                <th>TF</th>
+                                <th>Old %</th>
+                                <th>New %</th>
+                                <th>User / Source</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${changes.map(c => `
+                                <tr>
+                                    <td>${c.when ? c.when.replace('T', ' ').substring(0, 19) : '—'}</td>
+                                    <td><strong>${c.timeframe || '—'}</strong></td>
+                                    <td>${c.old_pct !== null && c.old_pct !== undefined ? `${(c.old_pct * 100).toFixed(1)}%` : '—'}</td>
+                                    <td><strong>${c.new_pct !== null && c.new_pct !== undefined ? `${(c.new_pct * 100).toFixed(1)}%` : '—'}</strong></td>
+                                    <td>${c.changed_by || c.source || 'cockpit'}</td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                `;
+            } catch (err) {
+                bodyEl.innerHTML = `<div class="empty-state" style="color: var(--accent-red-bright);">Failed to load history: ${err.message}</div>`;
+            }
+        });
+    }
+
+    if (closeBandHistoryBtn) {
+        closeBandHistoryBtn.addEventListener('click', () => {
+            if (bandHistoryModal) bandHistoryModal.style.display = 'none';
+        });
+    }
+
+    // C. Band Backup / Restore Management
+    const bandBackupsModal = document.getElementById('bandBackupsModal');
+    const closeBandBackupsBtn = document.getElementById('closeBandBackupsBtn');
+    const bandBackupsBtn = document.getElementById('bandBackupsBtn');
+
+    async function loadBandBackups() {
+        const bodyEl = document.getElementById('bandBackupsBody');
+        if (!bodyEl) return;
+        bodyEl.innerHTML = '<div class="empty-state">Loading backups...</div>';
+
+        try {
+            const data = await API.getBandBackups();
+            const backups = data.backups || [];
+            if (backups.length === 0) {
+                bodyEl.innerHTML = '<div class="empty-state">No dated daily band backups available.</div>';
+                return;
+            }
+            bodyEl.innerHTML = `
+                <table class="backups-table">
+                    <thead>
+                        <tr>
+                            <th>Snapshot Date</th>
+                            <th>Filename</th>
+                            <th>Stocks</th>
+                            <th>Size</th>
+                            <th>Action</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${backups.map(b => `
+                            <tr>
+                                <td><strong>${b.date || '—'}</strong></td>
+                                <td><code>${b.file}</code></td>
+                                <td>${b.stocks}</td>
+                                <td>${b.size_kb ? `${b.size_kb.toFixed(1)} KB` : '—'}</td>
+                                <td>
+                                    <button class="btn btn-xs btn-outline btn-restore-backup" data-file="${b.file}">Restore</button>
+                                </td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            `;
+
+            bodyEl.querySelectorAll('.btn-restore-backup').forEach(btn => {
+                btn.addEventListener('click', async (e) => {
+                    const file = e.currentTarget.getAttribute('data-file');
+                    if (!confirm(`Restore all band widths from snapshot '${file}'?\nThis will overwrite current band configurations.`)) {
+                        return;
+                    }
+                    try {
+                        btn.disabled = true;
+                        btn.textContent = '...';
+                        await API.restoreBandBackup(file);
+                        showToast(`Restored band snapshot '${file}' successfully!`, 'success');
+                        if (bandBackupsModal) bandBackupsModal.style.display = 'none';
+                        if (activeSymbol) {
+                            await loadChartData(activeSymbol);
+                            await loadStockPanel(activeSymbol);
+                        }
+                    } catch (err) {
+                        if (err.message && err.message.includes('403')) {
+                            showToast('Band restoration is disabled in Demo Mode.', 'warning');
+                        } else {
+                            showToast(`Restore failed: ${err.message}`, 'error');
+                        }
+                        btn.disabled = false;
+                        btn.textContent = 'Restore';
+                    }
+                });
+            });
+        } catch (err) {
+            bodyEl.innerHTML = `<div class="empty-state" style="color: var(--accent-red-bright);">Failed to load backups: ${err.message}</div>`;
+        }
+    }
+
+    if (bandBackupsBtn) {
+        bandBackupsBtn.addEventListener('click', () => {
+            if (bandBackupsModal) bandBackupsModal.style.display = 'flex';
+            loadBandBackups();
+        });
+    }
+
+    if (closeBandBackupsBtn) {
+        closeBandBackupsBtn.addEventListener('click', () => {
+            if (bandBackupsModal) bandBackupsModal.style.display = 'none';
+        });
+    }
+
+    // D. Sprint Race Visualizer & Leaderboard
+    const raceModal = document.getElementById('raceModal');
+    const closeRaceBtn = document.getElementById('closeRaceBtn');
+    const openRaceBtn = document.getElementById('openRaceBtn');
+    const runRaceBtn = document.getElementById('runRaceBtn');
+    let currentRaceLines = [];
+
+    function renderRaceChart(lines) {
+        const canvas = document.getElementById('raceChartCanvas');
+        if (!canvas) return;
+        const ctx = canvas.getContext('2d');
+        const container = canvas.parentElement;
+        const dpr = window.devicePixelRatio || 1;
+        const width = container.clientWidth || 800;
+        const height = 400;
+
+        canvas.width = width * dpr;
+        canvas.height = height * dpr;
+        canvas.style.width = `${width}px`;
+        canvas.style.height = `${height}px`;
+        ctx.scale(dpr, dpr);
+
+        ctx.clearRect(0, 0, width, height);
+
+        if (!lines || lines.length === 0) {
+            ctx.fillStyle = '#8b949e';
+            ctx.font = '14px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText('No trajectory data returned for selected criteria', width / 2, height / 2);
+            return;
+        }
+
+        const colors = [
+            '#238636', '#58a6ff', '#f0883e', '#d29922', '#a371f7',
+            '#3fb950', '#79c0ff', '#ff7b72', '#ec6547', '#e3b341',
+            '#bc8cff', '#56d364', '#2f81f7', '#da3633', '#1f6feb'
+        ];
+
+        let minVal = 0;
+        let maxVal = 10;
+        const allTimes = new Set();
+
+        lines.forEach(line => {
+            (line.points || []).forEach(pt => {
+                allTimes.add(pt.time);
+                if (pt.value < minVal) minVal = pt.value;
+                if (pt.value > maxVal) maxVal = pt.value;
+            });
+        });
+
+        const padTop = 30;
+        const padBottom = 40;
+        const padLeft = 60;
+        const padRight = 120;
+        const chartW = width - padLeft - padRight;
+        const chartH = height - padTop - padBottom;
+
+        const valRange = (maxVal - minVal) || 1;
+        const yZero = padTop + chartH * (maxVal / valRange);
+
+        // Draw grid lines & Y-axis labels
+        ctx.strokeStyle = '#30363d';
+        ctx.fillStyle = '#8b949e';
+        ctx.font = '11px monospace';
+        ctx.textAlign = 'right';
+        ctx.lineWidth = 1;
+
+        const ySteps = 5;
+        for (let i = 0; i <= ySteps; i++) {
+            const v = minVal + (valRange * (i / ySteps));
+            const y = padTop + chartH - (chartH * (i / ySteps));
+            ctx.beginPath();
+            ctx.moveTo(padLeft, y);
+            ctx.lineTo(padLeft + chartW, y);
+            ctx.stroke();
+            ctx.fillText(`${v >= 0 ? '+' : ''}${v.toFixed(0)}%`, padLeft - 8, y + 4);
+        }
+
+        // Highlight zero baseline if within range
+        if (minVal <= 0 && maxVal >= 0) {
+            ctx.strokeStyle = '#6e7681';
+            ctx.lineWidth = 1.5;
+            ctx.beginPath();
+            ctx.moveTo(padLeft, yZero);
+            ctx.lineTo(padLeft + chartW, yZero);
+            ctx.stroke();
+        }
+
+        const sortedTimes = Array.from(allTimes).sort();
+        const timeIndexMap = new Map();
+        sortedTimes.forEach((t, idx) => timeIndexMap.set(t, idx));
+        const numTimes = sortedTimes.length;
+
+        // Draw trajectories
+        lines.forEach((line, lineIdx) => {
+            const color = colors[lineIdx % colors.length];
+            const pts = (line.points || []).filter(p => timeIndexMap.has(p.time)).sort((a, b) => a.time.localeCompare(b.time));
+            if (pts.length < 2) return;
+
+            ctx.strokeStyle = color;
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+
+            pts.forEach((pt, idx) => {
+                const tIdx = timeIndexMap.get(pt.time);
+                const x = padLeft + (chartW * (tIdx / Math.max(1, numTimes - 1)));
+                const y = padTop + chartH - (chartH * ((pt.value - minVal) / valRange));
+                if (idx === 0) ctx.moveTo(x, y);
+                else ctx.lineTo(x, y);
+            });
+            ctx.stroke();
+
+            // Label at endpoint
+            const lastPt = pts[pts.length - 1];
+            const lastTIdx = timeIndexMap.get(lastPt.time);
+            const endX = padLeft + (chartW * (lastTIdx / Math.max(1, numTimes - 1)));
+            const endY = padTop + chartH - (chartH * ((lastPt.value - minVal) / valRange));
+
+            ctx.fillStyle = color;
+            ctx.font = 'bold 11px sans-serif';
+            ctx.textAlign = 'left';
+            ctx.fillText(` ${line.symbol} (${lastPt.value >= 0 ? '+' : ''}${lastPt.value.toFixed(1)}%)`, endX + 4, endY + 4);
+        });
+
+        // X-axis date labels
+        if (numTimes > 0) {
+            ctx.fillStyle = '#8b949e';
+            ctx.font = '10px monospace';
+            ctx.textAlign = 'center';
+            const xStep = Math.max(1, Math.floor(numTimes / 6));
+            for (let i = 0; i < numTimes; i += xStep) {
+                const t = sortedTimes[i];
+                const x = padLeft + (chartW * (i / Math.max(1, numTimes - 1)));
+                ctx.fillText(t.substring(0, 7), x, height - 12);
+            }
+            const lastX = padLeft + chartW;
+            ctx.fillText(sortedTimes[numTimes - 1].substring(0, 7), lastX, height - 12);
+        }
+    }
+
+    async function executeRace() {
+        const anchor = document.getElementById('raceAnchorSelect')?.value || '2021-01-01';
+        const top = parseInt(document.getElementById('raceTopInput')?.value, 10) || 15;
+        const symbolsInput = (document.getElementById('raceSymbolsInput')?.value || '').trim();
+        const runBtn = document.getElementById('runRaceBtn');
+        const boardEl = document.getElementById('raceLeaderboardContainer');
+
+        let metric = 'SPA_A21';
+        if (anchor.includes('2022')) metric = 'SPA_A22';
+        else if (anchor.includes('2023')) metric = 'SPA_A23';
+        else if (anchor.includes('2024')) metric = 'SPA_A24';
+        else if (anchor.includes('2025')) metric = 'SPA_A25';
+        else if (anchor.includes('2026')) metric = 'SPA_A26';
+
+        try {
+            if (runBtn) {
+                runBtn.disabled = true;
+                runBtn.textContent = 'Running...';
+            }
+            if (boardEl) boardEl.innerHTML = '<div class="empty-state">Computing trajectory curves...</div>';
+
+            const res = await API.getRace({
+                symbols: symbolsInput || undefined,
+                anchor: anchor,
+                top: top,
+                metric: metric,
+            });
+
+            currentRaceLines = res.lines || [];
+            renderRaceChart(currentRaceLines);
+
+            // Render Leaderboard Table
+            if (boardEl) {
+                if (currentRaceLines.length === 0) {
+                    boardEl.innerHTML = '<div class="empty-state">No leaderboard entries found for specified criteria.</div>';
+                } else {
+                    boardEl.innerHTML = `
+                        <table class="race-table">
+                            <thead>
+                                <tr>
+                                    <th>Rank</th>
+                                    <th>Symbol</th>
+                                    <th>Trajectory Cumulative Gain</th>
+                                    <th>Data Points</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${currentRaceLines.map((l, idx) => `
+                                    <tr>
+                                        <td><strong>#${idx + 1}</strong></td>
+                                        <td><strong>${l.symbol}</strong></td>
+                                        <td class="${l.final >= 0 ? 'val-positive' : 'val-negative'}">
+                                            <strong>${l.final >= 0 ? '+' : ''}${l.final.toFixed(1)}%</strong>
+                                        </td>
+                                        <td>${(l.points || []).length} wks</td>
+                                    </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
+                    `;
+                }
+            }
+        } catch (err) {
+            showToast(`Race failed: ${err.message}`, 'error');
+            if (boardEl) boardEl.innerHTML = `<div class="empty-state" style="color: var(--accent-red-bright);">Race error: ${err.message}</div>`;
+        } finally {
+            if (runBtn) {
+                runBtn.disabled = false;
+                runBtn.textContent = '🏁 Run Race';
+            }
+        }
+    }
+
+    if (openRaceBtn) {
+        openRaceBtn.addEventListener('click', () => {
+            if (raceModal) raceModal.style.display = 'flex';
+            // Prepopulate symbols input if table has filtered symbols and symbols input is empty
+            const symInput = document.getElementById('raceSymbolsInput');
+            if (symInput && !symInput.value && table && table.displayRows) {
+                const rows = table.displayRows;
+                if (rows && rows.length > 0 && rows.length <= 15) {
+                    symInput.value = rows.map(r => r.symbol).join(', ');
+                }
+            }
+            executeRace();
+        });
+    }
+
+    if (closeRaceBtn) {
+        closeRaceBtn.addEventListener('click', () => {
+            if (raceModal) raceModal.style.display = 'none';
+        });
+    }
+
+    if (runRaceBtn) {
+        runRaceBtn.addEventListener('click', executeRace);
+    }
+
+    // Modal Backdrop Dismissal for all new modals
+    [bandHistoryModal, bandBackupsModal, raceModal].forEach(m => {
+        if (m) {
+            m.addEventListener('click', (e) => {
+                if (e.target === m) {
+                    m.style.display = 'none';
+                }
+            });
+        }
+    });
 
     // -------------------------------------------------------------------------
     // 14. Initialization Boot Sequence

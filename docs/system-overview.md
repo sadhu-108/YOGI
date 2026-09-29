@@ -123,7 +123,7 @@ The simple, unified mental model for screening:
 `IStrategy` and `StrategySpec` are declarative **configuration and composition recipes**, not a replacement for the screening pipeline. A strategy (such as one of the 21 Verified Mentor Presets) bundles qualification conditions, ranking metrics, and selection cutoffs into a reusable named recipe. Users can execute screens using a strategy recipe or by directly submitting a custom `ScreeningQuery`.
 
 ### 14. What is implemented?
-Steps 1 through 11, Batches 1 through 5, and architectural findings YOGI-F01 through YOGI-F06 are **COMPLETED and FROZEN**:
+Steps 1 through 11, Batches 1 through 5, Batches U1–U3, and architectural findings YOGI-F01 through YOGI-F06 are **COMPLETED and FROZEN**:
 - Foundation packaging and pytest infrastructure.
 - All 10 Core Contracts and invariant DTOs.
 - `CapabilityRegistry` and `RegistryHub` (3 categories).
@@ -138,7 +138,8 @@ Steps 1 through 11, Batches 1 through 5, and architectural findings YOGI-F01 thr
 - Results Engine (`ResultAssembler`, `ExportFormatter` for XLSX, CSV, JSON byte streams, and column categorization).
 - Persistent Storage Engine (`src/yogi/storage/`): `CsvBandsRepository` (manual bands, audit trail, daily backups, restore) and `CsvMetadataRepository` (security master metadata) with atomic `.tmp` staging and crash resilience.
 - Cockpit Layer (`src/yogi/cockpit/`): FastAPI application factory, REST API endpoints, `AppState` with deeply immutable `MappingProxyType` dataset cache, on-demand Stock Detail Drawer resolution (F05), bounded LRU chart data cache (F04), `ColumnProjectingAssembler`, `ChartDataService` packaging 19+ financial series via `CandleSeriesOut`, `RaceVisualizerService` (`/api/race`), and dark-theme TradingView Lightweight Charts dashboard.
-- Full test suite: **557 passed** across unit, integration, live smoke, golden regression, and Batch 1–5 parity suites (0 failures).
+- Cockpit Investor UX (Batches U1, U2, U3): Batch U1 Stock Detail technical analysis workspace with multi-timeframe matrix, cross-timeframe band selector, and technical overlays; Batch U2 Unified Screening Workspace with 5 progressive-disclosure cards, funnel telemetry, and condition negation; Batch U3 Power Controls featuring inline 6-timeframe band editing, audit history log, band backups & restore, two-way security metadata editing, Sprint Race visualizer workbench, universe power controls (sector, instrument type, microcaps), grouped band positions, multi-period cutoff templates, and historical period breakdowns.
+- Full test suite: **595 passed** across unit, integration, live smoke, golden regression, and Batch U1–U3 parity suites (0 failures).
 
 ### 15. What is not implemented?
 - **Mentor Review & Final UX Definition**: Presentation layout, interactive controls, and final UX ergonomics are deferred to the mentor review phase (**CURRENT NEXT PHASE**). Future UX work will build on top of the frozen backend engine without modifying Core contracts.
