@@ -583,6 +583,12 @@ class AppState:
             "DMI_STATE_D": row.get("DMI_STATE_D"),
         }
 
+        # Multi-timeframe DMI trend & ADX enrichment for drawer matrix
+        for tf_code in ("D", "W", "M", "Q", "H", "Y"):
+            for dmi_key in (f"DMI_STATE_{tf_code}", f"ADX_{tf_code}", f"DIP_{tf_code}", f"DIM_{tf_code}"):
+                if dmi_key in row:
+                    key_metrics[dmi_key] = row.get(dmi_key)
+
         return StockDetailPanelOut(
             symbol=symbol,
             exchange=row.get("exchange", "NSE"),

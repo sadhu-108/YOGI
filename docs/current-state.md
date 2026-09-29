@@ -1,10 +1,9 @@
 # YOGI Current State
 
-## Current State: MVP Backend Complete & Frozen (Transition to Mentor/UX Review)
+## Current State: MVP Backend + Batches 1–5 + Batches U1–U2 Complete & Frozen
 
-**Date**: 2026-09-27  
-**Status**: MVP Backend & Analytical Engine + Batch 1 Parity (Candlestick Theory & Sprint Race Curve) + Batch 2 Parity (Cross-Timeframe Band Envelope Synthesis) + Batch 3A Parity (Existing Technical-Series Exposure) + Batch 3B Parity (Price / Volatility Technical Indicators) + Batch 3C Parity (Oscillators: RSI, MACD, OBV, MFI) + Batch 3D Parity (YOGI Custom Curves: Sprint Speed, Acceleration, Band Distance, YOGI ROC) + Batch 4 Parity (Persistent Bands: CsvBandsRepository, Audit Trail, Backups & Restore) + Batch 5 Parity (Market Metadata, Instrument Classification, NSE F&O Universe, Persistent Security Metadata, Pipeline Enrichment, Cockpit Meta API) VERIFIED & FROZEN | Master Cockpit UX Prototype Verified | Architectural Remediation (F01–F06) RESOLVED | Entering Mentor/UX Review Phase  
-**Test Suite**: 557 passed across unit, integration, live smoke, and golden regression suites.
+**Date**: 2026-09-29  
+**Status**: MVP Backend & Analytical Engine + Batches 1–5 + Batch U1 (Stock Detail) + Batch U2 (Unified Screening Workspace) VERIFIED & FROZEN | Master Cockpit UX Prototype Verified | Architectural Parity & Zero JS Math Maintained | Test Suite: 580 passed across unit, integration, live smoke, and golden regression suites.
 
 ---
 
@@ -207,7 +206,28 @@
     - **Screening vs Chart Decoupling**: Screening conditions carry multi-timeframe semantics (D, W, M, Q, H, Y) while chart timeframe buttons toggle visual candlestick view independently without altering screen query.
     - **High-Density Results Table**: Interactive sortable columns, visual prototype pill strips (6-TF EMA ribbon, 6-TF Band state, Impulse badges, ROC heat colors), row selection highlight, and funnel telemetry.
     - **Stock Detail Drawer**: Synchronized 6-timeframe inspection matrix directly beneath the chart showing EMA, band state, band width, band upper/lower levels, ROC%, and speed, plus comprehensive key metrics block (Sprint consistency, Impulse `IC`/`IC_RATIO`, Accelerations, ATH diff, DMI/ADX, and Out-of-band counts).
-    - **Live Twelve Data Provider Switching**: Runtime toggle between Demo (`provider="demo"`) and Live Twelve Data (`provider="twelvedata"`) with strict error propagation and no silent fallback ([ADR-010](decisions.md#adr-010-cockpit-live-twelve-data-provider-connection--demo-isolation)).
+    - **Batch U1: Stock Detail — Coherent Technical Analysis Workspace**:
+      - Professional investor workspace exposing the 19+ backend-calculated financial series without creating a button farm ("Full Control Without Complexity").
+      - Grouped Overlays Popover (`#overlaysDropdown`): Trend overlays (EMA 3, EMA 5, SMA 20 / Basis, Average Price), Volatility / Channels (Bollinger Bands, Donchian Channels, ATR Bands, VWAP), YOGI Bands envelope toggle, and Volume toggle.
+      - Grouped Analytical Sub-Panel Popover (`#panelsDropdown`): Single-active analytical pane beneath the price chart supporting RSI (with 70/30 thresholds), MACD (MACD line, Signal line, Histogram series), DMI/ADX (+DI, -DI, ADX), OBV, MFI (with 80/20 thresholds), and YOGI custom curves (Sprint Speed, Acceleration, Band Distance, YOGI ROC). Synchronized time scale with main price chart.
+      - Independent Band Timeframe Selector: Decoupled chart timeframe vs band timeframe via `band_tf` API query parameter (`[Same as Chart ▾]`, Daily, Weekly, Monthly, Quarterly, Half-Yearly, Yearly, None/Off).
+      - Stock Identity Badges in Drawer Header: Symbol, Name, Price, Sector, Grade, Market Cap Group, and F&O eligibility.
+      - Categorized Multi-Timeframe Matrix: Organized into Trend & Alignment (EMA, Bands, DMI State), Momentum & Returns (ROC, Sprint Speed, Acceleration), Strength (DMI/ADX), and Bands & Volatility (Band Width, Band Distance, Upper/Lower levels).
+      - Async Race Safety: Request ID token guard (`currentStockDrawerRequestId`) preventing stale out-of-order responses from overwriting rapid stock selections.
+      - Session state persistence for user overlay selections, active panel, and band timeframe.
+    - **Batch U2: Unified Screening / Configuration Workspace**:
+      - One unified professional screening workspace exposing the entire frozen screening engine without mode fragmentation (no separate Quick/Custom/Advanced modes).
+      - Structured Left Workbench into 5 distinct progressive disclosure cards:
+        1. **Universe & Presets**: Exchange (`NSE`, `BSE`, `BOTH`), Segment (`ALL`, `FNO`, `CASH`), Presets recipe dropdown with instant automatic loading, Revert button restoring pristine snapshot upon modification, Save As user preset dialog, Delete user preset, Quick stock find.
+        2. **Conditions (QUALIFY)**: Root Match (`ALL`/`ANY`), Root `NOT` toggle, Quick EMA Uptrend ribbon `[D..Y]`, Quick Band position buttons, Dynamic Condition Rows with Metric Family and inline timeframe segmented buttons `[D] [W] [M] [Q] [H] [Y]`, `vs Col` cross-field comparison (`field2`), context-sensitive value inputs, Visually nested groups with tree connectors, group-level `NOT` inversion, arbitrary subgroup nesting.
+        3. **Ranking (ORDER)**: Primary ranking metric dropdown, direction `desc`/`asc`, progressive disclosure for secondary tie-breaker metric.
+        4. **Selection (SHOW)**: Top N limit with quick pills `[10] [20] [50] [100] [All]`, Rank Survival Cutoffs builder exposing `RankCutoffSpec` (`RANK_M`..`RANK_D` <= threshold).
+        5. **Display Columns & Actions**: Column presets (`summary`, `returns`, `sprint`, `bands`, `emas`, `strength`, `all`), custom projection input, primary `[ 🚀 RUN SCREEN ]` action, multi-format exports (`XLSX`, `CSV`, `JSON`).
+      - Right Viewport:
+        - Reactively updating Active Configuration / Setup Summary Banner reflecting universe, preset (with modified indicator `(Modified)`), conditions (with `NOT` prefix), ranking, selection cutoff counts.
+        - Funnel Telemetry: `Universe → Qualified → Selected`.
+        - Dense Results Grid with multi-timeframe DMI and candlestick pattern badge rendering.
+        - Full preservation of Batch U1 Stock Detail Workspace.
     - Operates with zero Node/NPM build toolchain dependencies.
   - **Presentation Boundary & Mentor Review Status**:
     - The current Cockpit UI in `src/yogi/cockpit/static/*` operates as a verified functional prototype workbench for validating analytical calculations, multi-timeframe synthesis, screening queries, and drawer telemetry.
@@ -226,7 +246,10 @@
   - `tests/cockpit/test_batch_3b_indicators.py` (10/10 tests passing).
   - `tests/cockpit/test_batch_3c_oscillators.py` (10/10 tests passing).
   - `tests/cockpit/test_batch_3d_custom_curves.py` (8/8 tests passing).
-  - Total Cockpit test suite: 121/121 tests passing (100%).
+  - `tests/cockpit/test_cockpit_stock_drawer.py` (12/12 tests passing).
+  - `tests/cockpit/test_batch_u1_stock_detail.py` (11/11 tests passing).
+  - `tests/cockpit/test_batch_u2_screener.py` (12/12 tests passing).
+  - Total Cockpit test suite: 173/173 tests passing (100%).
 
 ---
 
@@ -239,25 +262,25 @@ rootdir: D:\Yogi Investing\My_version
 configfile: pyproject.toml
 testpaths: tests
 plugins: anyio-4.15.1
-collected 557 items
+collected 580 items
 
 tests\calculation\ (8 files, 116 tests) ........................................ [ 20%]
-tests\cockpit\ (15 files, 150 tests) .......................................... [ 47%]
-tests\core\ (4 files, 51 tests) ............................................... [ 56%]
-tests\data\ (6 files, 105 tests) .............................................. [ 75%]
-tests\filter\ (1 file, 13 tests) .............................................. [ 77%]
-tests\pipeline\ (4 files, 13 tests) ........................................... [ 79%]
-tests\ranking\ (1 file, 8 tests) .............................................. [ 81%]
-tests\regression\ (1 file, 6 tests) ........................................... [ 82%]
-tests\results\ (2 files, 14 tests) ............................................ [ 84%]
-tests\selection\ (1 file, 10 tests) ........................................... [ 86%]
-tests\storage\ (4 files, 36 tests) ............................................ [ 93%]
-tests\strategy\ (2 files, 10 tests) ........................................... [ 95%]
+tests\cockpit\ (18 files, 173 tests) .......................................... [ 50%]
+tests\core\ (4 files, 51 tests) ............................................... [ 59%]
+tests\data\ (6 files, 105 tests) .............................................. [ 77%]
+tests\filter\ (1 file, 13 tests) .............................................. [ 79%]
+tests\pipeline\ (4 files, 13 tests) ........................................... [ 81%]
+tests\ranking\ (1 file, 8 tests) .............................................. [ 83%]
+tests\regression\ (1 file, 6 tests) ........................................... [ 84%]
+tests\results\ (2 files, 14 tests) ............................................ [ 86%]
+tests\selection\ (1 file, 10 tests) ........................................... [ 88%]
+tests\storage\ (4 files, 36 tests) ............................................ [ 94%]
+tests\strategy\ (2 files, 10 tests) ........................................... [ 96%]
 tests\timeframe\ (1 file, 25 tests) ........................................... [100%]
 
-======================== 557 passed, 2 warnings in ~154s ========================
+======================== 580 passed, 2 warnings in ~160s ========================
 ```
-Total tests: **557 passed, 0 failures** (100% pass rate across Core, Providers, Calculations, Pipeline, Storage, Cockpit, and Batches 1–5).
+Total tests: **580 passed, 0 failures** (100% pass rate across Core, Providers, Calculations, Pipeline, Storage, Cockpit, Batches 1–5, Batch U1, and Batch U2).
 
 ---
 
@@ -279,7 +302,7 @@ Total tests: **557 passed, 0 failures** (100% pass rate across Core, Providers, 
 | **Selection Engine (`src/yogi/selection/`)** | **IMPLEMENTED** | `SelectionEngine` evaluating rank thresholds and sustained duration (Step 9). |
 | **Strategy Engine (`src/yogi/strategy/`)** | **IMPLEMENTED** | `Strategy` engine and the 21 Verified Mentor Presets (Step 9). |
 | **Results Engine (`src/yogi/results/`)** | **IMPLEMENTED** | `ResultAssembler` and `ExportFormatter` for XLSX, CSV, JSON byte streams (Step 10). |
-| **Cockpit UI (`src/yogi/cockpit/`)** | **IMPLEMENTED** | Interactive workspace, Stock Detail Drawer, charting endpoints, AppState cache, metadata endpoints, and REST APIs (Step 11). |
+| **Cockpit UI & Master UX** | **IMPLEMENTED & FROZEN (Batch U1)** | Interactive workspace, Coherent Stock Detail Technical Analysis Workspace (grouped overlays, single-active sub-panels, independent band timeframe, metadata badges, categorized 6-TF matrix, async race protection), AppState cache, metadata endpoints, and REST APIs (Step 11 & Batch U1). |
 | **Market Metadata & Classification** | **IMPLEMENTED (Batch 5)** | Pure classification normalizer (`classification.py`), pure NSE F&O universe normalizer (`fno.py`), resilient dual-mirror NSE source adapter (`sources/nse.py`), pipeline base record enrichment (`name, sector, grade, mcap, fno, instr, grp`), and Cockpit metadata APIs (`GET /api/meta/{symbol}`, `POST /api/meta/{symbol}`) with demo isolation. |
 | **Architectural Findings (F01–F06)** | **RESOLVED** | All 6 findings (F01 Timeframe protocol injection in pipeline orchestrator, F02 Demo provider location in `data/providers/`, F03 Centralized band envelope math in `calculator.py`, F04 Bounded chart data cache with LRU/TTL in `charting.py`, F05 Stock-Panel on-demand resolution with bounded LRU cache in `state.py`, F06 Documentation synchronization) are fully resolved and verified. |
 | **Mentor Review & UX Definition** | **PENDING NEXT PHASE** | Mentor will evaluate presentation of calculations, options, strategies, filters, rankings, and analytical metrics to define final user-facing UX. |
@@ -300,8 +323,8 @@ Total tests: **557 passed, 0 failures** (100% pass rate across Core, Providers, 
 
 The system strictly distinguishes between different categories of capability status:
 
-### A. BACKEND COMPLETE & FROZEN
-- 100% of mathematical algorithms, formulas, and metric calculations across all 5 pillars (ands, candles, impulse, 	rend, elocity).
+### A. BACKEND & COCKPIT COMPLETE & FROZEN
+- 100% of mathematical algorithms, formulas, and metric calculations across all 5 pillars (Bands, Candles, Impulse, Trend, Velocity).
 - 204 candlestick shape dimensions, patterns, and structural relationship flags.
 - Complete technical indicator and oscillator suite: Bollinger Bands, Donchian Channels, ATR Volatility Bands, VWAP, Average Price, RSI (Wilder 14), MACD (12/26/9), OBV, MFI (14).
 - Continuous momentum curves: YOGI Sprint Speed, Acceleration, Band Distance, YOGI ROC.
@@ -311,14 +334,17 @@ The system strictly distinguishes between different categories of capability sta
 - Crash-resilient atomic persistence for manual bands (CsvBandsRepository, audit trail, daily backups, restore).
 - Security Master & classification (InstrumentClassifier, official NSE F&O universe discovery NseFnoUniverse, CsvMetadataRepository).
 - Cockpit HTTP transport layer and ChartDataService packaging 19+ financial series into CandleSeriesOut.
+- **Batch U1 Technical Analysis Workspace**:
+  - TradingView chart sub-panes for RSI, MACD, DMI, OBV, MFI, and YOGI custom curves (Sprint Speed, Acceleration, Band Distance, ROC) in `chart.js` with synchronized time scales and fallback.
+  - Grouped Overlays popover for Bollinger Bands, Donchian Channels, ATR Volatility Bands, VWAP, SMA20 basis, EMA3, EMA5, and Average Price.
+  - Independent band timeframe selector (`band_tf` query parameter).
+  - Compact volume histogram overlay with auto-margin scaling.
+  - Security metadata badges (Sector, Grade, Mcap, F&O) in Stock Detail Drawer header.
+  - Categorized Multi-Timeframe Matrix (Trend & Alignment, Momentum & Speed, Strength, Bands & Volatility).
+  - Async race safety on rapid stock switching (`currentStockDrawerRequestId`).
 
-### B. UI NOT YET EXPOSED (Presentation Backlog)
-- TradingView chart sub-panes for RSI, MACD, OBV, and MFI in chart.js (backend already serves data via /api/candles/{symbol}).
-- UI checkbox overlays for Bollinger Bands, Donchian Channels, ATR Volatility Bands, VWAP, SMA20 basis, EMA3, and EMA5 in chart.js.
-- UI toggles for continuous momentum curves (Sprint Speed, Acceleration, Band Distance, YOGI ROC) in chart.js.
-- Volume histogram rendering beneath candlestick series in chart.js.
-- Security metadata badges (sector, grade, no) in Stock Detail Drawer header.
-- Advanced filter builder UI controls for cross-field comparison (ield2) and condition negation (NOT).
+### B. UI NOT YET EXPOSED (Remaining Minor Presentation Backlog)
+- Advanced filter builder UI controls for cross-field comparison (`field2`) and condition negation (`NOT`).
 - Band snapshot restore trigger button in Cockpit workbench.
 
 ### C. REMAINING MINOR BACKEND GAPS

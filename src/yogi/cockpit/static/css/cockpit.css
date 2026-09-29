@@ -587,6 +587,49 @@ body {
     min-width: 0;
 }
 
+.rule-tf-segmented {
+    display: inline-flex;
+    gap: 2px;
+    background-color: var(--card-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    padding: 1px;
+}
+
+.rule-tf-btn {
+    background: transparent;
+    border: none;
+    color: var(--text-secondary);
+    font-size: 10px;
+    font-weight: 700;
+    padding: 2px 5px;
+    border-radius: 3px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    line-height: 1;
+}
+
+.rule-tf-btn:hover {
+    color: var(--text-primary);
+    background-color: var(--hover-bg);
+}
+
+.rule-tf-btn.active {
+    background-color: var(--accent-blue);
+    color: #ffffff;
+}
+
+.rule-field-resolved {
+    font-size: 10px;
+    font-family: monospace;
+    color: var(--accent-blue-light);
+    background: rgba(88, 166, 255, 0.1);
+    border: 1px solid rgba(88, 166, 255, 0.2);
+    padding: 1px 4px;
+    border-radius: 3px;
+    white-space: nowrap;
+}
+
 .rule-not-toggle {
     font-size: 10px;
     font-weight: 700;
@@ -596,12 +639,37 @@ body {
     border: 1px solid var(--border-color);
     color: var(--text-muted);
     cursor: pointer;
+    transition: all 0.15s ease;
 }
 
 .rule-not-toggle.active {
     background-color: rgba(218, 54, 51, 0.2);
     border-color: var(--accent-red-bright);
     color: var(--accent-red-bright);
+}
+
+.group-not-toggle {
+    font-size: 10px;
+    font-weight: 700;
+    padding: 2px 6px;
+    border-radius: 3px;
+    background-color: var(--card-bg);
+    border: 1px solid var(--border-color);
+    color: var(--text-muted);
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.group-not-toggle:hover {
+    border-color: #8b949e;
+    color: var(--text-secondary);
+}
+
+.group-not-toggle.active {
+    background-color: rgba(218, 54, 51, 0.25);
+    border-color: var(--accent-red-bright);
+    color: var(--accent-red-bright);
+    box-shadow: 0 0 4px rgba(218, 54, 51, 0.3);
 }
 
 .rule-mode-toggle {
@@ -618,29 +686,70 @@ body {
 .rule-mode-toggle.active {
     border-color: var(--accent-blue-light);
     color: var(--accent-blue-light);
+    background-color: rgba(88, 166, 255, 0.15);
 }
 
-/* Nested Group Card */
+/* Nested Group Card with Tree Hierarchy */
 .nested-group-card {
-    border: 1px dashed rgba(88, 166, 255, 0.35);
-    background-color: rgba(13, 17, 23, 0.5);
-    border-radius: 6px;
+    border: 1px solid rgba(88, 166, 255, 0.3);
+    border-left: 4px solid var(--accent-blue-light);
+    background-color: rgba(13, 17, 23, 0.75);
+    border-radius: 4px;
     padding: 8px;
+    margin-left: 8px;
+    position: relative;
     display: flex;
     flex-direction: column;
     gap: 6px;
+}
+
+.nested-group-card::before {
+    content: "↳";
+    position: absolute;
+    left: -14px;
+    top: 6px;
+    color: var(--accent-blue-light);
+    font-size: 12px;
 }
 
 .nested-group-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
+    padding-bottom: 4px;
+    border-bottom: 1px solid rgba(240, 246, 252, 0.08);
 }
 
 .rule-builder-actions {
     display: flex;
     gap: 8px;
     margin-top: 6px;
+}
+
+/* Cutoff Rows */
+.cutoffs-container {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}
+
+.cutoff-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background-color: var(--bg-dark);
+    border: 1px solid var(--border-color);
+    padding: 4px 6px;
+    border-radius: 4px;
+}
+
+.cutoff-metric {
+    flex: 2;
+}
+
+.cutoff-max {
+    width: 65px;
+    text-align: right;
 }
 
 /* Limit pills */
@@ -844,6 +953,54 @@ body {
     margin: 0;
 }
 
+.drawer-stock-name {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-secondary);
+    max-width: 220px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.drawer-meta-badges {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.badge-meta {
+    background-color: var(--card-sub-bg);
+    color: var(--text-secondary);
+    border: 1px solid var(--border-color);
+    font-size: 10px;
+    font-weight: 600;
+    padding: 2px 6px;
+    border-radius: 3px;
+}
+
+.badge-grade {
+    background-color: rgba(56, 139, 253, 0.15);
+    color: var(--accent-blue-light);
+    border: 1px solid var(--accent-blue-dim);
+    font-size: 10px;
+    font-weight: 700;
+    padding: 2px 6px;
+    border-radius: 3px;
+}
+
+.badge-fno {
+    background-color: rgba(46, 160, 67, 0.2);
+    color: var(--accent-green-bright);
+    border: 1px solid rgba(46, 160, 67, 0.4);
+    font-size: 10px;
+    font-weight: 800;
+    padding: 2px 6px;
+    border-radius: 3px;
+    letter-spacing: 0.5px;
+}
+
 .drawer-status-badges {
     display: flex;
     align-items: center;
@@ -906,9 +1063,178 @@ body {
     justify-content: space-between;
     align-items: center;
     flex-wrap: wrap;
-    gap: 10px;
+    gap: 8px;
     padding: 4px 0;
 }
+
+.toolbar-left-group {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.toolbar-middle-group {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.toolbar-right-group {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.band-tf-wrap {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+}
+
+.toolbar-label {
+    font-size: 11px;
+    color: var(--text-secondary);
+    font-weight: 600;
+}
+
+.toolbar-select {
+    background-color: var(--bg-dark);
+    border: 1px solid var(--border-color);
+    color: var(--text-primary);
+    padding: 3px 6px;
+    border-radius: 4px;
+    font-size: 11px;
+    cursor: pointer;
+}
+
+.toolbar-select:focus {
+    outline: none;
+    border-color: var(--accent-blue);
+}
+
+.dropdown-control {
+    position: relative;
+    display: inline-block;
+}
+
+.dropdown-toggle {
+    font-size: 11px;
+    font-weight: 600;
+    padding: 3px 10px;
+    border-radius: 4px;
+    background-color: var(--bg-dark);
+    border: 1px solid var(--border-color);
+    color: var(--text-primary);
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.dropdown-toggle:hover {
+    border-color: var(--text-secondary);
+    background-color: var(--hover-bg);
+}
+
+.popover-menu {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    margin-top: 4px;
+    background-color: #161b22;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+    padding: 8px;
+    z-index: 100;
+    min-width: 220px;
+    max-height: 380px;
+    overflow-y: auto;
+}
+
+.menu-section-header {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    letter-spacing: 0.5px;
+    padding: 4px 6px 2px;
+    border-bottom: 1px solid var(--border-light);
+    margin: 4px 0 2px;
+}
+
+.menu-section-header:first-child {
+    margin-top: 0;
+}
+
+.menu-checkbox-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 6px;
+    border-radius: 4px;
+    font-size: 11px;
+    color: var(--text-secondary);
+    cursor: pointer;
+    user-select: none;
+    transition: background-color 0.1s ease;
+}
+
+.menu-checkbox-item:hover {
+    background-color: var(--hover-bg);
+    color: var(--text-primary);
+}
+
+.menu-checkbox-item input[type="checkbox"] {
+    cursor: pointer;
+    accent-color: var(--accent-blue);
+}
+
+.menu-option-btn {
+    display: block;
+    width: 100%;
+    text-align: left;
+    background: transparent;
+    border: none;
+    color: var(--text-secondary);
+    padding: 5px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.1s ease;
+}
+
+.menu-option-btn:hover {
+    background-color: var(--hover-bg);
+    color: var(--text-primary);
+}
+
+.menu-option-btn.active {
+    background-color: rgba(56, 139, 253, 0.2);
+    color: var(--accent-blue-light);
+    font-weight: 700;
+}
+
+/* Swatches for overlay menu */
+.swatch {
+    width: 10px;
+    height: 10px;
+    border-radius: 2px;
+    display: inline-block;
+    flex-shrink: 0;
+}
+.swatch-ema3 { background-color: #e3b341; }
+.swatch-ema5 { background-color: #f0883e; }
+.swatch-sma20 { background-color: #8b949e; }
+.swatch-avg { background-color: #e3b341; border: 1px dotted #ffffff; }
+.swatch-bands { background-color: #58a6ff; }
+.swatch-bollinger { background-color: #39c5bb; }
+.swatch-donchian { background-color: #a371f7; }
+.swatch-atr { background-color: #d29922; }
+.swatch-vwap { background-color: #2ea043; }
+.swatch-volume { background-color: #26a69a; }
 
 .price-badge {
     font-size: 14px;
@@ -1040,6 +1366,63 @@ body.drawer-open .data-table td {
     position: relative;
 }
 
+/* Sub-Chart Analytical Viewport (Batch U1 Progressive Disclosure) */
+.subchart-viewport {
+    background-color: #131722;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    margin-top: 6px;
+    display: flex;
+    flex-direction: column;
+}
+
+.subchart-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 3px 8px;
+    border-bottom: 1px solid #1e222d;
+    background-color: #161b22;
+}
+
+.subchart-header-left {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.subchart-title {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--text-primary);
+}
+
+.subchart-legend {
+    font-size: 11px;
+    font-family: monospace;
+    color: var(--accent-blue-light);
+}
+
+.subchart-close-btn {
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    font-size: 12px;
+    cursor: pointer;
+    padding: 1px 4px;
+    border-radius: 3px;
+}
+
+.subchart-close-btn:hover {
+    color: var(--text-primary);
+    background-color: var(--hover-bg);
+}
+
+.subchart-canvas {
+    height: 120px;
+    width: 100%;
+}
+
 /* Live Multi-Timeframe Matrix Drawer */
 .live-panel-drawer {
     background-color: var(--card-sub-bg);
@@ -1105,6 +1488,22 @@ body.drawer-open .data-table td {
     font-weight: 600;
     color: var(--text-secondary);
     background-color: rgba(13, 17, 23, 0.4);
+}
+
+.matrix-section-header th {
+    background-color: #161b22 !important;
+    color: var(--accent-blue-light) !important;
+    font-size: 10px !important;
+    font-weight: 700 !important;
+    letter-spacing: 0.5px !important;
+    padding: 5px 8px !important;
+    text-align: left !important;
+    border-top: 1px solid var(--border-color) !important;
+}
+
+.matrix-metric-name {
+    font-weight: 600;
+    color: var(--text-primary);
 }
 
 .empty-matrix {

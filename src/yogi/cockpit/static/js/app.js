@@ -93,22 +93,187 @@ document.addEventListener('DOMContentLoaded', async () => {
             ]
         },
         {
-            category: "Price, Market & Technical",
+            category: "Strength & Technical (DMI)",
+            metrics: [
+                { key: "ADX_D", label: "ADX Daily", tf: "D", type: "number" },
+                { key: "ADX_W", label: "ADX Weekly", tf: "W", type: "number" },
+                { key: "ADX_M", label: "ADX Monthly", tf: "M", type: "number" },
+                { key: "ADX_Q", label: "ADX Quarterly", tf: "Q", type: "number" },
+                { key: "ADX_H", label: "ADX Half-Yearly", tf: "H", type: "number" },
+                { key: "ADX_Y", label: "ADX Yearly", tf: "Y", type: "number" },
+                { key: "DIP_D", label: "+DI Daily", tf: "D", type: "number" },
+                { key: "DIP_W", label: "+DI Weekly", tf: "W", type: "number" },
+                { key: "DIP_M", label: "+DI Monthly", tf: "M", type: "number" },
+                { key: "DIM_D", label: "-DI Daily", tf: "D", type: "number" },
+                { key: "DIM_W", label: "-DI Weekly", tf: "W", type: "number" },
+                { key: "DIM_M", label: "-DI Monthly", tf: "M", type: "number" },
+                { key: "DMI_D", label: "DMI State Daily", tf: "D", type: "enum", options: ["bullish", "bearish", "neutral"] },
+                { key: "DMI_W", label: "DMI State Weekly", tf: "W", type: "enum", options: ["bullish", "bearish", "neutral"] },
+                { key: "DMI_M", label: "DMI State Monthly", tf: "M", type: "enum", options: ["bullish", "bearish", "neutral"] },
+                { key: "DMI_STATE_D", label: "DMI State Daily (Alias)", tf: "D", type: "enum", options: ["bullish", "bearish", "neutral"] },
+            ]
+        },
+        {
+            category: "Candlestick Patterns",
+            metrics: [
+                { key: "CD_BREAKOUT", label: "Daily Breakout (Close > Prev High)", tf: "D", type: "enum", options: ["Y", "N"] },
+                { key: "CW_BREAKOUT", label: "Weekly Breakout", tf: "W", type: "enum", options: ["Y", "N"] },
+                { key: "CM_BREAKOUT", label: "Monthly Breakout", tf: "M", type: "enum", options: ["Y", "N"] },
+                { key: "CD_HAMMER", label: "Daily Hammer", tf: "D", type: "enum", options: ["Y", "N"] },
+                { key: "CW_HAMMER", label: "Weekly Hammer", tf: "W", type: "enum", options: ["Y", "N"] },
+                { key: "CM_HAMMER", label: "Monthly Hammer", tf: "M", type: "enum", options: ["Y", "N"] },
+                { key: "CD_BULL_ENGULF", label: "Daily Bullish Engulfing", tf: "D", type: "enum", options: ["Y", "N"] },
+                { key: "CW_BULL_ENGULF", label: "Weekly Bullish Engulfing", tf: "W", type: "enum", options: ["Y", "N"] },
+                { key: "CM_BULL_ENGULF", label: "Monthly Bullish Engulfing", tf: "M", type: "enum", options: ["Y", "N"] },
+                { key: "CD_INSIDE", label: "Daily Inside Bar", tf: "D", type: "enum", options: ["Y", "N"] },
+                { key: "CW_INSIDE", label: "Weekly Inside Bar", tf: "W", type: "enum", options: ["Y", "N"] },
+                { key: "CM_INSIDE", label: "Monthly Inside Bar", tf: "M", type: "enum", options: ["Y", "N"] },
+                { key: "CD_DOJI", label: "Daily Doji", tf: "D", type: "enum", options: ["Y", "N"] },
+                { key: "CW_DOJI", label: "Weekly Doji", tf: "W", type: "enum", options: ["Y", "N"] },
+                { key: "CM_DOJI", label: "Monthly Doji", tf: "M", type: "enum", options: ["Y", "N"] },
+                { key: "CD_SHOOTSTAR", label: "Daily Shooting Star", tf: "D", type: "enum", options: ["Y", "N"] },
+                { key: "CW_SHOOTSTAR", label: "Weekly Shooting Star", tf: "W", type: "enum", options: ["Y", "N"] },
+                { key: "CM_SHOOTSTAR", label: "Monthly Shooting Star", tf: "M", type: "enum", options: ["Y", "N"] },
+                { key: "CD_MARUBOZU", label: "Daily Marubozu", tf: "D", type: "enum", options: ["Y", "N"] },
+                { key: "CW_MARUBOZU", label: "Weekly Marubozu", tf: "W", type: "enum", options: ["Y", "N"] },
+                { key: "CM_MARUBOZU", label: "Monthly Marubozu", tf: "M", type: "enum", options: ["Y", "N"] },
+                { key: "CD_VOL_SPIKE", label: "Daily Volume Spike (≥2x)", tf: "D", type: "enum", options: ["Y", "N"] },
+                { key: "CW_VOL_SPIKE", label: "Weekly Volume Spike", tf: "W", type: "enum", options: ["Y", "N"] },
+                { key: "CD_CLOSE_STRONG", label: "Daily Close Strong (Top 20%)", tf: "D", type: "enum", options: ["Y", "N"] },
+                { key: "CW_CLOSE_STRONG", label: "Weekly Close Strong", tf: "W", type: "enum", options: ["Y", "N"] },
+                { key: "CM_CLOSE_STRONG", label: "Monthly Close Strong", tf: "M", type: "enum", options: ["Y", "N"] },
+            ]
+        },
+        {
+            category: "Price, Market & Rankings",
             metrics: [
                 { key: "price", label: "Current Price (₹)", tf: "D", type: "number", unit: "₹" },
                 { key: "ATH_DIFF", label: "Distance from All-Time High %", tf: "D", type: "number", unit: "%" },
-                { key: "ADX_D", label: "ADX Trend Strength Daily", tf: "D", type: "number" },
-                { key: "DIP_D", label: "+DI Daily", tf: "D", type: "number" },
-                { key: "DIM_D", label: "-DI Daily", tf: "D", type: "number" },
-                { key: "DMI_STATE_D", label: "DMI State Daily", tf: "D", type: "enum", options: ["bullish", "bearish", "neutral"] },
                 { key: "fno", label: "F&O Derivatives Listed", tf: "STATIC", type: "enum", options: ["Y", "N"] },
                 { key: "mcap", label: "Market Capitalization (Cr)", tf: "STATIC", type: "number", unit: "Cr" },
                 { key: "sector", label: "Sector", tf: "STATIC", type: "string" },
                 { key: "grade", label: "Grade", tf: "STATIC", type: "string" },
+                { key: "RANK_M", label: "Monthly Rank (1 = Top)", tf: "M", type: "number" },
+                { key: "RANK_Y", label: "Yearly Rank", tf: "Y", type: "number" },
+                { key: "RANK_W", label: "Weekly Rank", tf: "W", type: "number" },
+                { key: "RANK_Q", label: "Quarterly Rank", tf: "Q", type: "number" },
+                { key: "RANK_H", label: "Half-Yearly Rank", tf: "H", type: "number" },
+                { key: "RANK_D", label: "Daily Rank", tf: "D", type: "number" },
                 { key: "RANK_CHG", label: "Monthly Rank Change Delta", tf: "M", type: "number" },
             ]
         }
     ];
+
+    // Multi-Timeframe Family Mapping for Segmented Controls [D, W, M, Q, H, Y]
+    const MULTI_TF_FAMILIES = {
+        ROC: {
+            family: "ROC",
+            label: "Rate of Change (ROC %)",
+            keys: { D: "DROC", W: "WROC", M: "MROC", Q: "QROC", H: "HROC", Y: "YROC" }
+        },
+        SPD: {
+            family: "SPD",
+            label: "Speed / Velocity",
+            keys: { W: "SPD_W", M: "SPD_M", Q: "SPD_Q", H: "SPD_H", Y: "SPD_Y" }
+        },
+        EMA: {
+            family: "EMA",
+            label: "EMA Ribbon (3 vs 5)",
+            keys: { D: "EMA_D", W: "EMA_W", M: "EMA_M", Q: "EMA_Q", H: "EMA_H", Y: "EMA_Y" }
+        },
+        BANDST: {
+            family: "BANDST",
+            label: "Band Position",
+            keys: { D: "BANDST_D", W: "BANDST_W", M: "BANDST_M", Q: "BANDST_Q", H: "BANDST_H", Y: "BANDST_Y" }
+        },
+        BD: {
+            family: "BD",
+            label: "Band Distance %",
+            keys: { D: "BD_D", W: "BD_W", M: "BD_M", Q: "BD_Q", H: "BD_H", Y: "BD_Y" }
+        },
+        ADX: {
+            family: "ADX",
+            label: "ADX Trend Strength",
+            keys: { D: "ADX_D", W: "ADX_W", M: "ADX_M", Q: "ADX_Q", H: "ADX_H", Y: "ADX_Y" }
+        },
+        DIP: {
+            family: "DIP",
+            label: "+DI Directional",
+            keys: { D: "DIP_D", W: "DIP_W", M: "DIP_M", Q: "DIP_Q", H: "DIP_H", Y: "DIP_Y" }
+        },
+        DIM: {
+            family: "DIM",
+            label: "-DI Directional",
+            keys: { D: "DIM_D", W: "DIM_W", M: "DIM_M", Q: "DIM_Q", H: "DIM_H", Y: "DIM_Y" }
+        },
+        DMI: {
+            family: "DMI",
+            label: "DMI Trend State",
+            keys: { D: "DMI_D", W: "DMI_W", M: "DMI_M", Q: "DMI_Q", H: "DMI_H", Y: "DMI_Y" }
+        },
+        RANK: {
+            family: "RANK",
+            label: "Timeframe Rank",
+            keys: { D: "RANK_D", W: "RANK_W", M: "RANK_M", Q: "RANK_Q", H: "RANK_H", Y: "RANK_Y" }
+        },
+        CDL_BREAKOUT: {
+            family: "CDL_BREAKOUT",
+            label: "Candle: Breakout",
+            keys: { D: "CD_BREAKOUT", W: "CW_BREAKOUT", M: "CM_BREAKOUT" }
+        },
+        CDL_HAMMER: {
+            family: "CDL_HAMMER",
+            label: "Candle: Hammer",
+            keys: { D: "CD_HAMMER", W: "CW_HAMMER", M: "CM_HAMMER" }
+        },
+        CDL_BULL_ENGULF: {
+            family: "CDL_BULL_ENGULF",
+            label: "Candle: Bull Engulf",
+            keys: { D: "CD_BULL_ENGULF", W: "CW_BULL_ENGULF", M: "CM_BULL_ENGULF" }
+        },
+        CDL_INSIDE: {
+            family: "CDL_INSIDE",
+            label: "Candle: Inside Bar",
+            keys: { D: "CD_INSIDE", W: "CW_INSIDE", M: "CM_INSIDE" }
+        },
+        CDL_DOJI: {
+            family: "CDL_DOJI",
+            label: "Candle: Doji",
+            keys: { D: "CD_DOJI", W: "CW_DOJI", M: "CM_DOJI" }
+        },
+        CDL_SHOOTSTAR: {
+            family: "CDL_SHOOTSTAR",
+            label: "Candle: Shoot Star",
+            keys: { D: "CD_SHOOTSTAR", W: "CW_SHOOTSTAR", M: "CM_SHOOTSTAR" }
+        },
+        CDL_MARUBOZU: {
+            family: "CDL_MARUBOZU",
+            label: "Candle: Marubozu",
+            keys: { D: "CD_MARUBOZU", W: "CW_MARUBOZU", M: "CM_MARUBOZU" }
+        },
+        CDL_VOL_SPIKE: {
+            family: "CDL_VOL_SPIKE",
+            label: "Candle: Vol Spike",
+            keys: { D: "CD_VOL_SPIKE", W: "CW_VOL_SPIKE" }
+        },
+        CDL_CLOSE_STRONG: {
+            family: "CDL_CLOSE_STRONG",
+            label: "Candle: Close Strong",
+            keys: { D: "CD_CLOSE_STRONG", W: "CW_CLOSE_STRONG", M: "CM_CLOSE_STRONG" }
+        }
+    };
+
+    function getFamilyForMetricKey(key) {
+        for (const famKey in MULTI_TF_FAMILIES) {
+            const fam = MULTI_TF_FAMILIES[famKey];
+            for (const tf in fam.keys) {
+                if (fam.keys[tf] === key) {
+                    return { family: fam, tf: tf };
+                }
+            }
+        }
+        return null;
+    }
 
     const MENTOR_CATEGORIES = {
         "Impulse / Rally": ["A1_IMPULSE_CONFIRMED", "A2_ALL_6_TF_EMA_UP", "A3_FRESH_MONTHLY_UPCUT", "A4_FRESH_WEEKLY_UPCUT"],
@@ -142,13 +307,16 @@ document.addEventListener('DOMContentLoaded', async () => {
     // -------------------------------------------------------------------------
     let activeSymbol = '';
     let activeChartTimeframe = 'D';
+    let activeBandTimeframe = '';
+    let activePanel = 'none';
+    let currentStockDrawerRequestId = 0;
     let loadedPresetName = '';
     let isPresetModified = false;
     let allStrategies = [];
     let currentUniverseCount = 0;
 
     // Initialize Chart & Table
-    const chart = new CockpitChart('chartContainer');
+    const chart = new CockpitChart('chartContainer', 'subChartCanvas');
     const table = new CockpitTable('resultsTable', async (sym) => {
         if (!sym) return;
         await openStockDrawer(sym);
@@ -335,18 +503,24 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     // -------------------------------------------------------------------------
-    // 5. Preset Loading into Cockpit Form Controls
+    // 5. Preset Loading, Revert & Reset Controls
     // -------------------------------------------------------------------------
     const presetSelect = document.getElementById('presetSelect');
     const loadPresetBtn = document.getElementById('loadPresetBtn');
+    const revertPresetBtn = document.getElementById('revertPresetBtn');
+    const resetFormBtn = document.getElementById('resetFormBtn');
+    const rootGroupNotToggle = document.getElementById('rootGroupNotToggle');
 
     if (presetSelect) {
-        presetSelect.addEventListener('change', (e) => {
+        presetSelect.addEventListener('change', async (e) => {
             const name = e.target.value;
             const strat = allStrategies.find(s => s.name === name);
             const descDiv = document.getElementById('presetDesc');
             if (descDiv) {
                 descDiv.textContent = strat ? (strat.description || 'Verified preset recipe.') : '';
+            }
+            if (name) {
+                await applyPresetToEditor(name);
             }
         });
     }
@@ -363,10 +537,13 @@ document.addEventListener('DOMContentLoaded', async () => {
             const rulesContainer = document.getElementById('filterRulesContainer');
             if (rulesContainer) rulesContainer.innerHTML = '';
 
-            // 2. Set root match
+            // 2. Set root match & root negation
             const rootMatch = document.getElementById('rootGroupMatch');
             if (rootMatch && detail.filter_group) {
                 rootMatch.value = detail.filter_group.match || 'all';
+            }
+            if (rootGroupNotToggle) {
+                rootGroupNotToggle.classList.toggle('active', Boolean(detail.filter_group && detail.filter_group.is_negated));
             }
 
             // 3. Load rules recursively
@@ -385,14 +562,38 @@ document.addEventListener('DOMContentLoaded', async () => {
                 const rankingSelect = document.getElementById('rankingMetric');
                 if (rankingSelect) rankingSelect.value = detail.target_ranking_metric;
             }
-
-            if (detail.target_cutoff_limit) {
-                const limitInput = document.getElementById('screenLimit');
-                if (limitInput) limitInput.value = detail.target_cutoff_limit;
-                syncLimitPills(detail.target_cutoff_limit);
+            if (detail.ranking_order) {
+                const rankingOrderSelect = document.getElementById('rankingOrder');
+                if (rankingOrderSelect) rankingOrderSelect.value = detail.ranking_order;
             }
 
-            // 5. Sync EMA quick toggles based on rules
+            const limitInput = document.getElementById('screenLimit');
+            if (limitInput) {
+                const lim = detail.target_cutoff_limit !== undefined && detail.target_cutoff_limit !== null
+                    ? detail.target_cutoff_limit
+                    : (detail.limit !== undefined && detail.limit !== null ? detail.limit : 20);
+                limitInput.value = lim;
+                syncLimitPills(lim);
+            }
+
+            // 5. Set Rank Cutoffs
+            const cutoffsContainer = document.getElementById('cutoffsContainer');
+            if (cutoffsContainer) {
+                cutoffsContainer.innerHTML = '';
+                if (detail.selection_cutoffs && Array.isArray(detail.selection_cutoffs)) {
+                    detail.selection_cutoffs.forEach(c => {
+                        addCutoffRow(c.metric, c.max_rank);
+                    });
+                }
+            }
+
+            // 6. Set Columns if provided
+            if (detail.columns && Array.isArray(detail.columns) && detail.columns.length > 0) {
+                const customInput = document.getElementById('customColumns');
+                if (customInput) customInput.value = detail.columns.join(', ');
+            }
+
+            // 7. Sync EMA quick toggles based on rules
             syncEmaTogglesFromRules();
 
             updateActiveRuleCount();
@@ -405,7 +606,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     if (loadPresetBtn) {
         loadPresetBtn.addEventListener('click', () => {
-            const name = document.getElementById('presetSelect').value;
+            const name = document.getElementById('presetSelect')?.value;
             if (!name) {
                 showToast('Please select a preset from the dropdown first.', 'error');
                 return;
@@ -414,8 +615,59 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
     }
 
+    if (revertPresetBtn) {
+        revertPresetBtn.addEventListener('click', async () => {
+            if (!loadedPresetName) return;
+            await applyPresetToEditor(loadedPresetName);
+            showToast(`Reverted back to pristine preset '${loadedPresetName}'`, 'info');
+        });
+    }
+
+    if (resetFormBtn) {
+        resetFormBtn.addEventListener('click', () => {
+            const rulesContainer = document.getElementById('filterRulesContainer');
+            if (rulesContainer) rulesContainer.innerHTML = '';
+            const rootMatch = document.getElementById('rootGroupMatch');
+            if (rootMatch) rootMatch.value = 'all';
+            if (rootGroupNotToggle) rootGroupNotToggle.classList.remove('active');
+            const rankSelect = document.getElementById('rankingMetric');
+            if (rankSelect) rankSelect.value = 'M_CUR';
+            const rankOrder = document.getElementById('rankingOrder');
+            if (rankOrder) rankOrder.value = 'desc';
+            const secRank = document.getElementById('secondaryRankingMetric');
+            if (secRank) secRank.value = '';
+            const limitInput = document.getElementById('screenLimit');
+            if (limitInput) limitInput.value = '20';
+            syncLimitPills(20);
+            const cutoffsContainer = document.getElementById('cutoffsContainer');
+            if (cutoffsContainer) cutoffsContainer.innerHTML = '';
+            const customCols = document.getElementById('customColumns');
+            if (customCols) customCols.value = '';
+            document.querySelectorAll('.col-preset-btn').forEach(b => {
+                b.classList.toggle('active', b.dataset.preset === 'summary');
+            });
+            if (presetSelect) presetSelect.value = '';
+            const descDiv = document.getElementById('presetDesc');
+            if (descDiv) descDiv.textContent = '';
+            loadedPresetName = '';
+            isPresetModified = false;
+            if (revertPresetBtn) revertPresetBtn.disabled = true;
+            syncEmaTogglesFromRules();
+            updateActiveRuleCount();
+            updateSummaryBanner();
+            showToast('Reset all screening criteria to default', 'info');
+        });
+    }
+
+    if (rootGroupNotToggle) {
+        rootGroupNotToggle.addEventListener('click', () => {
+            rootGroupNotToggle.classList.toggle('active');
+            onConditionChanged();
+        });
+    }
+
     // -------------------------------------------------------------------------
-    // 6. Condition Builder (Multi-Timeframe & Nested Groups)
+    // 6. Condition Builder (Multi-Timeframe Segmented Controls & Nested Groups)
     // -------------------------------------------------------------------------
     const rulesContainer = document.getElementById('filterRulesContainer');
     const addRuleBtn = document.getElementById('addRuleBtn');
@@ -434,11 +686,19 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         card.innerHTML = `
             <div class="rule-top-row">
-                <span class="rule-tf-badge">M</span>
+                <div class="rule-tf-segmented" style="display: none;">
+                    <button type="button" class="rule-tf-btn" data-tf="D">D</button>
+                    <button type="button" class="rule-tf-btn" data-tf="W">W</button>
+                    <button type="button" class="rule-tf-btn" data-tf="M">M</button>
+                    <button type="button" class="rule-tf-btn" data-tf="Q">Q</button>
+                    <button type="button" class="rule-tf-btn" data-tf="H">H</button>
+                    <button type="button" class="rule-tf-btn" data-tf="Y">Y</button>
+                </div>
+                <span class="rule-field-resolved">${defaultField}</span>
                 <select class="form-control form-control-sm rule-metric-select"></select>
-                <button class="rule-not-toggle ${defaultNegated ? 'active' : ''}" title="Invert rule (NOT logic)">NOT</button>
-                <button class="rule-mode-toggle ${defaultField2 ? 'active' : ''}" title="Toggle between Constant Value and Column-to-Column comparison">vs Col</button>
-                <button class="btn-remove" title="Remove condition">×</button>
+                <button type="button" class="rule-not-toggle ${defaultNegated ? 'active' : ''}" title="Invert rule (NOT logic)">NOT</button>
+                <button type="button" class="rule-mode-toggle ${defaultField2 ? 'active' : ''}" title="Toggle between Constant Value and Column comparison">vs Col</button>
+                <button type="button" class="btn-remove" title="Remove condition">×</button>
             </div>
             <div class="rule-controls-row">
                 <select class="form-control form-control-sm rule-op-select">
@@ -450,6 +710,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                     <option value="<=">&lt;= (Less/Eq)</option>
                     <option value="in">IN (List)</option>
                     <option value="not_in">NOT IN</option>
+                    <option value="contains">CONTAINS</option>
                     <option value="between">BETWEEN</option>
                     <option value="not_blank">NOT BLANK</option>
                     <option value="blank">BLANK</option>
@@ -462,7 +723,9 @@ document.addEventListener('DOMContentLoaded', async () => {
             </div>
         `;
 
-        const tfBadge = card.querySelector('.rule-tf-badge');
+        const tfSegmented = card.querySelector('.rule-tf-segmented');
+        const tfButtons = card.querySelectorAll('.rule-tf-btn');
+        const fieldResolvedBadge = card.querySelector('.rule-field-resolved');
         const metricSelect = card.querySelector('.rule-metric-select');
         const notToggle = card.querySelector('.rule-not-toggle');
         const modeToggle = card.querySelector('.rule-mode-toggle');
@@ -491,14 +754,34 @@ document.addEventListener('DOMContentLoaded', async () => {
         function updateInputState() {
             const selectedKey = metricSelect.value;
             const meta = getMetricMeta(selectedKey);
-            tfBadge.textContent = meta.tf || '—';
+            fieldResolvedBadge.textContent = selectedKey;
+
+            // Timeframe segmented control synchronization
+            const famInfo = getFamilyForMetricKey(selectedKey);
+            if (famInfo) {
+                tfSegmented.style.display = 'inline-flex';
+                tfButtons.forEach(btn => {
+                    const tf = btn.dataset.tf;
+                    const hasTf = Boolean(famInfo.family.keys[tf]);
+                    btn.style.display = hasTf ? 'inline-block' : 'none';
+                    btn.classList.toggle('active', tf === famInfo.tf);
+                });
+            } else {
+                tfSegmented.style.display = 'none';
+            }
 
             const isColMode = modeToggle.classList.contains('active');
-            if (isColMode) {
+            const curOp = opSelect.value;
+
+            if (curOp === 'blank' || curOp === 'not_blank') {
+                valInput.style.display = 'none';
+                valSelect.style.display = 'none';
+                field2Select.style.display = 'none';
+            } else if (isColMode) {
                 valInput.style.display = 'none';
                 valSelect.style.display = 'none';
                 field2Select.style.display = '';
-            } else if (meta.type === 'enum' && meta.options) {
+            } else if (meta.type === 'enum' && meta.options && curOp !== 'in' && curOp !== 'not_in') {
                 field2Select.style.display = 'none';
                 valInput.style.display = 'none';
                 valSelect.style.display = '';
@@ -508,15 +791,32 @@ document.addEventListener('DOMContentLoaded', async () => {
                 field2Select.style.display = 'none';
                 valSelect.style.display = 'none';
                 valInput.style.display = '';
-                valInput.placeholder = meta.unit ? `Value (${meta.unit})` : 'Value';
+                valInput.placeholder = (curOp === 'in' || curOp === 'not_in')
+                    ? 'e.g. upcut, yes'
+                    : (meta.unit ? `Value (${meta.unit})` : 'Value');
                 if (defaultVal !== undefined && defaultVal !== null) valInput.value = defaultVal;
             }
             onConditionChanged();
         }
 
+        tfButtons.forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.preventDefault();
+                const tf = btn.dataset.tf;
+                const famInfo = getFamilyForMetricKey(metricSelect.value);
+                if (famInfo && famInfo.family.keys[tf]) {
+                    metricSelect.value = famInfo.family.keys[tf];
+                    defaultVal = '';
+                    updateInputState();
+                    syncEmaTogglesFromRules();
+                }
+            });
+        });
+
         metricSelect.addEventListener('change', () => {
             defaultVal = '';
             updateInputState();
+            syncEmaTogglesFromRules();
         });
 
         notToggle.addEventListener('click', () => {
@@ -529,7 +829,10 @@ document.addEventListener('DOMContentLoaded', async () => {
             updateInputState();
         });
 
-        opSelect.addEventListener('change', onConditionChanged);
+        opSelect.addEventListener('change', () => {
+            updateInputState();
+        });
+
         valInput.addEventListener('input', onConditionChanged);
         valSelect.addEventListener('change', onConditionChanged);
         field2Select.addEventListener('change', onConditionChanged);
@@ -551,42 +854,61 @@ document.addEventListener('DOMContentLoaded', async () => {
         groupCard.className = 'nested-group-card';
 
         const matchVal = initialGroup ? (initialGroup.match || 'any') : 'any';
+        const isNegated = initialGroup ? Boolean(initialGroup.is_negated) : false;
 
         groupCard.innerHTML = `
             <div class="nested-group-header">
                 <div class="group-match-bar">
-                    <span>Nested Group Match:</span>
+                    <span>Nested Group:</span>
                     <select class="form-control form-control-sm group-match-select match-select">
                         <option value="all" ${matchVal === 'all' ? 'selected' : ''}>ALL (AND)</option>
                         <option value="any" ${matchVal === 'any' ? 'selected' : ''}>ANY (OR)</option>
                     </select>
+                    <button type="button" class="group-not-toggle ${isNegated ? 'active' : ''}" title="Invert nested group (NOT logic)">NOT</button>
                 </div>
-                <button class="btn-remove" title="Remove nested group">×</button>
+                <button type="button" class="btn-remove" title="Remove nested group">×</button>
             </div>
             <div class="nested-rules-list rules-container"></div>
             <div class="rule-builder-actions">
-                <button class="btn btn-xs btn-outline btn-add-nested-rule">+ Add Rule</button>
+                <button type="button" class="btn btn-xs btn-outline btn-add-nested-rule">+ Add Rule</button>
+                <button type="button" class="btn btn-xs btn-ghost btn-add-nested-subgroup">+ Add Subgroup</button>
             </div>
         `;
 
         const nestedRulesContainer = groupCard.querySelector('.nested-rules-list');
         const addNestedRuleBtn = groupCard.querySelector('.btn-add-nested-rule');
+        const addNestedSubgroupBtn = groupCard.querySelector('.btn-add-nested-subgroup');
         const removeGroupBtn = groupCard.querySelector('.btn-remove');
         const matchSelect = groupCard.querySelector('.group-match-select');
+        const groupNotBtn = groupCard.querySelector('.group-not-toggle');
 
         matchSelect.addEventListener('change', onConditionChanged);
+        groupNotBtn.addEventListener('click', () => {
+            groupNotBtn.classList.toggle('active');
+            onConditionChanged();
+        });
+
         removeGroupBtn.addEventListener('click', () => {
             groupCard.remove();
             onConditionChanged();
+            syncEmaTogglesFromRules();
         });
 
         addNestedRuleBtn.addEventListener('click', () => {
             createRuleRow(nestedRulesContainer);
         });
 
+        addNestedSubgroupBtn.addEventListener('click', () => {
+            createNestedGroupCard(nestedRulesContainer);
+        });
+
         if (initialGroup && initialGroup.rules) {
             initialGroup.rules.forEach(r => {
-                createRuleRow(nestedRulesContainer, r);
+                if (r.rules && Array.isArray(r.rules)) {
+                    createNestedGroupCard(nestedRulesContainer, r);
+                } else {
+                    createRuleRow(nestedRulesContainer, r);
+                }
             });
         }
 
@@ -720,28 +1042,39 @@ document.addEventListener('DOMContentLoaded', async () => {
         onConditionChanged();
     });
 
-    // Rank Cutoffs Builder
+    // Rank Cutoffs Builder Helper
     const cutoffsContainer = document.getElementById('cutoffsContainer');
-    document.getElementById('addCutoffBtn')?.addEventListener('click', () => {
-        if (!cutoffsContainer) return;
+
+    function addCutoffRow(metric = 'RANK_M', maxRank = 100) {
+        if (!cutoffsContainer) return null;
         const row = document.createElement('div');
         row.className = 'cutoff-row';
         row.innerHTML = `
             <select class="form-control form-control-sm cutoff-metric">
-                <option value="RANK_M">Month Rank (RANK_M)</option>
-                <option value="RANK_Y">Year Rank (RANK_Y)</option>
-                <option value="RANK_W">Week Rank (RANK_W)</option>
+                <option value="RANK_M" ${metric === 'RANK_M' ? 'selected' : ''}>Month Rank (RANK_M)</option>
+                <option value="RANK_Y" ${metric === 'RANK_Y' ? 'selected' : ''}>Year Rank (RANK_Y)</option>
+                <option value="RANK_W" ${metric === 'RANK_W' ? 'selected' : ''}>Week Rank (RANK_W)</option>
+                <option value="RANK_Q" ${metric === 'RANK_Q' ? 'selected' : ''}>Quarter Rank (RANK_Q)</option>
+                <option value="RANK_H" ${metric === 'RANK_H' ? 'selected' : ''}>Half-Year Rank (RANK_H)</option>
+                <option value="RANK_D" ${metric === 'RANK_D' ? 'selected' : ''}>Day Rank (RANK_D)</option>
             </select>
             <span style="font-size:11px">&le;</span>
-            <input type="number" class="form-control form-control-sm cutoff-max" value="100" style="width: 70px;">
-            <button class="btn-remove" title="Remove cutoff">×</button>
+            <input type="number" class="form-control form-control-sm cutoff-max" value="${maxRank}" min="1" max="2000" style="width: 70px;">
+            <button type="button" class="btn-remove" title="Remove cutoff">×</button>
         `;
         row.querySelector('.btn-remove').addEventListener('click', () => {
             row.remove();
             onConditionChanged();
         });
+        row.querySelector('.cutoff-metric').addEventListener('change', onConditionChanged);
+        row.querySelector('.cutoff-max').addEventListener('input', onConditionChanged);
         cutoffsContainer.appendChild(row);
         onConditionChanged();
+        return row;
+    }
+
+    document.getElementById('addCutoffBtn')?.addEventListener('click', () => {
+        addCutoffRow('RANK_M', 100);
     });
 
     // -------------------------------------------------------------------------
@@ -786,7 +1119,11 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
 
         const ruleCount = document.querySelectorAll('.rule-card').length;
-        if (condEl) condEl.textContent = `${ruleCount} ${ruleCount === 1 ? 'Condition' : 'Conditions'}`;
+        const isRootNegated = document.getElementById('rootGroupNotToggle')?.classList.contains('active');
+        if (condEl) {
+            const notPrefix = isRootNegated ? 'NOT ' : '';
+            condEl.textContent = `${notPrefix}${ruleCount} ${ruleCount === 1 ? 'Condition' : 'Conditions'}`;
+        }
 
         const rankMetric = document.getElementById('rankingMetric')?.value;
         const rankOrder = document.getElementById('rankingOrder')?.value || 'desc';
@@ -806,15 +1143,26 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
 
         const limitVal = parseInt(document.getElementById('screenLimit')?.value, 10);
+        const cutoffCount = document.querySelectorAll('.cutoff-row').length;
         if (selEl) {
-            selEl.textContent = limitVal ? `Top ${limitVal}` : 'All Qualified';
+            let text = limitVal ? `Top ${limitVal}` : 'All Qualified';
+            if (cutoffCount > 0) {
+                text += ` (+${cutoffCount} Cutoff${cutoffCount > 1 ? 's' : ''})`;
+            }
+            selEl.textContent = text;
+        }
+
+        // Revert button state
+        const revertBtn = document.getElementById('revertPresetBtn');
+        if (revertBtn) {
+            revertBtn.disabled = !loadedPresetName || !isPresetModified;
         }
     }
 
     // -------------------------------------------------------------------------
     // 11. Screen Execution Pipeline & Funnel Telemetry
     // -------------------------------------------------------------------------
-    function extractFilterGroup(containerEl, matchType = 'all') {
+    function extractFilterGroup(containerEl, matchType = 'all', isNegated = false) {
         const rules = [];
 
         // Direct rule cards
@@ -839,7 +1187,9 @@ document.addEventListener('DOMContentLoaded', async () => {
             } else {
                 const meta = getMetricMeta(metricKey);
                 let val;
-                if (meta.type === 'enum' && meta.options) {
+                if (op === 'blank' || op === 'not_blank') {
+                    val = null;
+                } else if (meta.type === 'enum' && meta.options && op !== 'in' && op !== 'not_in') {
                     val = card.querySelector('.rule-val-select').value;
                 } else {
                     val = card.querySelector('.rule-val-input').value.trim();
@@ -849,7 +1199,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                     if (typeof val === 'string') {
                         val = val.split(',').map(s => s.trim()).filter(Boolean);
                     }
-                } else if (!isNaN(Number(val)) && val !== '') {
+                } else if (val !== null && !isNaN(Number(val)) && val !== '') {
                     val = Number(val);
                 }
 
@@ -866,19 +1216,21 @@ document.addEventListener('DOMContentLoaded', async () => {
         const nestedGroups = Array.from(containerEl.children).filter(el => el.classList.contains('nested-group-card'));
         nestedGroups.forEach(grpCard => {
             const subMatch = grpCard.querySelector('.group-match-select').value;
+            const subNot = grpCard.querySelector('.group-not-toggle')?.classList.contains('active') || false;
             const subContainer = grpCard.querySelector('.nested-rules-list');
-            const subGroup = extractFilterGroup(subContainer, subMatch);
+            const subGroup = extractFilterGroup(subContainer, subMatch, subNot);
             if (subGroup && subGroup.rules.length > 0) {
                 rules.push(subGroup);
             }
         });
 
-        return rules.length > 0 ? { match: matchType, rules } : null;
+        return rules.length > 0 ? { match: matchType, rules, is_negated: isNegated } : null;
     }
 
     function buildScreenPayload() {
         const rootMatch = document.getElementById('rootGroupMatch')?.value || 'all';
-        const filterGroup = extractFilterGroup(rulesContainer, rootMatch);
+        const rootNot = document.getElementById('rootGroupNotToggle')?.classList.contains('active') || false;
+        const filterGroup = extractFilterGroup(rulesContainer, rootMatch, rootNot);
 
         // Segment filtering (F&O vs Cash)
         let activeFilterGroup = filterGroup;
@@ -892,16 +1244,18 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         if (segmentRules.length > 0) {
             if (!activeFilterGroup) {
-                activeFilterGroup = { match: 'all', rules: segmentRules };
-            } else if (activeFilterGroup.match === 'all') {
+                activeFilterGroup = { match: 'all', rules: segmentRules, is_negated: false };
+            } else if (activeFilterGroup.match === 'all' && !activeFilterGroup.is_negated) {
                 activeFilterGroup = {
                     match: 'all',
-                    rules: [...activeFilterGroup.rules, ...segmentRules]
+                    rules: [...activeFilterGroup.rules, ...segmentRules],
+                    is_negated: false
                 };
             } else {
                 activeFilterGroup = {
                     match: 'all',
-                    rules: [activeFilterGroup, ...segmentRules]
+                    rules: [activeFilterGroup, ...segmentRules],
+                    is_negated: false
                 };
             }
         }
@@ -1005,7 +1359,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     // -------------------------------------------------------------------------
-    // 12. Stock Detail Slide-Over Drawer & Chart Viewport
+    // 12. Stock Detail Slide-Over Drawer & Chart Viewport (Batch U1 Workspace)
     // -------------------------------------------------------------------------
     async function openStockDrawer(symbol) {
         if (!symbol) return;
@@ -1019,11 +1373,20 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
         document.body.classList.add('drawer-open');
 
+        // Increment request ID to guard against out-of-order async race conditions
+        currentStockDrawerRequestId++;
+        const reqId = currentStockDrawerRequestId;
+
         // Immediately clear previous chart and indicators to avoid stale display
         chart.clear();
 
         const symbolEl = document.getElementById('activeSymbol');
+        const nameEl = document.getElementById('activeStockName');
         const priceEl = document.getElementById('activePrice');
+        const sectorBadge = document.getElementById('activeSectorBadge');
+        const capBadge = document.getElementById('activeCapBadge');
+        const gradeBadge = document.getElementById('activeGradeBadge');
+        const fnoBadge = document.getElementById('activeFnoBadge');
         const athBadge = document.getElementById('activeAthDiff');
         const icBadge = document.getElementById('activeIcBadge');
         const bandStatusBadge = document.getElementById('activeBandStatus');
@@ -1036,9 +1399,18 @@ document.addEventListener('DOMContentLoaded', async () => {
         const signalsStrip = document.getElementById('drawerSignalsStrip');
         const loadingOverlay = document.getElementById('drawerLoadingOverlay');
         const errorMsg = document.getElementById('drawerErrorMsg');
+        const bandTfSelect = document.getElementById('bandTfSelect');
 
         if (symbolEl) symbolEl.textContent = symbol;
+        if (nameEl) {
+            nameEl.textContent = '';
+            nameEl.style.display = 'none';
+        }
         if (priceEl) priceEl.textContent = '—';
+        if (sectorBadge) sectorBadge.style.display = 'none';
+        if (capBadge) capBadge.style.display = 'none';
+        if (gradeBadge) gradeBadge.style.display = 'none';
+        if (fnoBadge) fnoBadge.style.display = 'none';
         if (athBadge) athBadge.style.display = 'none';
         if (icBadge) icBadge.style.display = 'none';
         if (bandStatusBadge) bandStatusBadge.style.display = 'none';
@@ -1047,6 +1419,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (lowerEl) lowerEl.textContent = '—';
         if (widthEl) widthEl.textContent = '—';
         if (widthInput) widthInput.value = '';
+        if (bandTfSelect) bandTfSelect.value = activeBandTimeframe;
         if (errorMsg) {
             errorMsg.textContent = '';
             errorMsg.style.display = 'none';
@@ -1057,24 +1430,27 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
         if (loadingOverlay) loadingOverlay.style.display = 'flex';
 
+        // Synchronize active panel on chart controller
+        chart.setActivePanel(activePanel);
+
         // Trigger chart resize for the drawer container
         chart.resize();
 
         const reqSym = symbol;
         try {
             await Promise.all([
-                loadChartData(reqSym),
-                loadStockPanel(reqSym)
+                loadChartData(reqSym, reqId),
+                loadStockPanel(reqSym, reqId)
             ]);
         } catch (err) {
-            if (activeSymbol === reqSym) {
+            if (activeSymbol === reqSym && currentStockDrawerRequestId === reqId) {
                 if (errorMsg) {
                     errorMsg.textContent = `Unable to load data for ${reqSym}: ${err.message}`;
                     errorMsg.style.display = 'block';
                 }
             }
         } finally {
-            if (activeSymbol === reqSym && loadingOverlay) {
+            if (activeSymbol === reqSym && currentStockDrawerRequestId === reqId && loadingOverlay) {
                 loadingOverlay.style.display = 'none';
             }
             chart.resize();
@@ -1088,12 +1464,35 @@ document.addEventListener('DOMContentLoaded', async () => {
             drawer.setAttribute('aria-hidden', 'true');
         }
         document.body.classList.remove('drawer-open');
+        closeAllDrawerPopovers();
+    }
+
+    function closeAllDrawerPopovers() {
+        const overlaysMenu = document.getElementById('overlaysMenu');
+        const panelsMenu = document.getElementById('panelsMenu');
+        const overlaysBtn = document.getElementById('overlaysToggleBtn');
+        const panelsBtn = document.getElementById('panelsToggleBtn');
+
+        if (overlaysMenu) overlaysMenu.style.display = 'none';
+        if (panelsMenu) panelsMenu.style.display = 'none';
+        if (overlaysBtn) overlaysBtn.setAttribute('aria-expanded', 'false');
+        if (panelsBtn) panelsBtn.setAttribute('aria-expanded', 'false');
     }
 
     document.getElementById('drawerCloseBtn')?.addEventListener('click', closeStockDrawer);
 
     document.addEventListener('keydown', (e) => {
         if (e.key === 'Escape') {
+            const overlaysMenu = document.getElementById('overlaysMenu');
+            const panelsMenu = document.getElementById('panelsMenu');
+            const isOverlayOpen = overlaysMenu && overlaysMenu.style.display !== 'none';
+            const isPanelsOpen = panelsMenu && panelsMenu.style.display !== 'none';
+
+            if (isOverlayOpen || isPanelsOpen) {
+                closeAllDrawerPopovers();
+                return;
+            }
+
             const drawer = document.getElementById('stockDetailDrawer');
             if (drawer && drawer.classList.contains('open')) {
                 closeStockDrawer();
@@ -1101,6 +1500,23 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     });
 
+    // Close popovers when clicking outside
+    document.addEventListener('click', (e) => {
+        const overlaysDropdown = document.getElementById('overlaysDropdown');
+        const panelsDropdown = document.getElementById('panelsDropdown');
+        if (overlaysDropdown && !overlaysDropdown.contains(e.target)) {
+            const m = document.getElementById('overlaysMenu');
+            if (m) m.style.display = 'none';
+            document.getElementById('overlaysToggleBtn')?.setAttribute('aria-expanded', 'false');
+        }
+        if (panelsDropdown && !panelsDropdown.contains(e.target)) {
+            const m = document.getElementById('panelsMenu');
+            if (m) m.style.display = 'none';
+            document.getElementById('panelsToggleBtn')?.setAttribute('aria-expanded', 'false');
+        }
+    });
+
+    // 1. Chart Timeframe Toolbar Buttons
     const tfButtons = document.querySelectorAll('#tfButtons .tf-btn');
     tfButtons.forEach(btn => {
         btn.addEventListener('click', async () => {
@@ -1113,12 +1529,118 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
     });
 
-    async function loadChartData(symbol) {
+    // 2. Band Timeframe Selector
+    const bandTfSelect = document.getElementById('bandTfSelect');
+    if (bandTfSelect) {
+        bandTfSelect.addEventListener('change', async () => {
+            activeBandTimeframe = bandTfSelect.value;
+            if (activeSymbol) {
+                await loadChartData(activeSymbol);
+            }
+        });
+    }
+
+    // 3. Overlays Dropdown & Checkboxes
+    const overlaysToggleBtn = document.getElementById('overlaysToggleBtn');
+    const overlaysMenu = document.getElementById('overlaysMenu');
+    if (overlaysToggleBtn && overlaysMenu) {
+        overlaysToggleBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const isOpen = overlaysMenu.style.display !== 'none';
+            closeAllDrawerPopovers();
+            if (!isOpen) {
+                overlaysMenu.style.display = 'block';
+                overlaysToggleBtn.setAttribute('aria-expanded', 'true');
+            }
+        });
+    }
+
+    const overlayCheckboxes = [
+        { id: 'chkEma3', key: 'ema3' },
+        { id: 'chkEma5', key: 'ema5' },
+        { id: 'chkSma20', key: 'sma20' },
+        { id: 'chkAvgPrice', key: 'avg_price' },
+        { id: 'chkBands', key: 'bands' },
+        { id: 'chkBollinger', key: 'bollinger' },
+        { id: 'chkDonchian', key: 'donchian' },
+        { id: 'chkAtrBands', key: 'atr_bands' },
+        { id: 'chkVwap', key: 'vwap' },
+        { id: 'chkVolume', key: 'volume' },
+    ];
+
+    overlayCheckboxes.forEach(({ id, key }) => {
+        const el = document.getElementById(id);
+        if (el) {
+            el.addEventListener('change', () => {
+                chart.setOverlay(key, el.checked);
+            });
+        }
+    });
+
+    // 4. Analytical Panels Dropdown
+    const panelsToggleBtn = document.getElementById('panelsToggleBtn');
+    const panelsMenu = document.getElementById('panelsMenu');
+    const activePanelLabel = document.getElementById('activePanelLabel');
+    if (panelsToggleBtn && panelsMenu) {
+        panelsToggleBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const isOpen = panelsMenu.style.display !== 'none';
+            closeAllDrawerPopovers();
+            if (!isOpen) {
+                panelsMenu.style.display = 'block';
+                panelsToggleBtn.setAttribute('aria-expanded', 'true');
+            }
+        });
+    }
+
+    const panelButtons = document.querySelectorAll('#panelsMenu .menu-option-btn');
+    panelButtons.forEach(btn => {
+        btn.addEventListener('click', () => {
+            panelButtons.forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            activePanel = btn.dataset.panel || 'none';
+
+            const panelNames = {
+                none: 'None',
+                rsi: 'RSI (14)',
+                macd: 'MACD (12, 26, 9)',
+                dmi: 'DMI / ADX',
+                obv: 'OBV',
+                mfi: 'MFI (14)',
+                sprint: 'Sprint Speed',
+                accel: 'Acceleration',
+                band_dist: 'Band Distance',
+                yogi_roc: 'YOGI ROC',
+            };
+            const label = panelNames[activePanel] || 'None';
+            if (activePanelLabel) {
+                activePanelLabel.textContent = `Panels: ${label} ▾`;
+            }
+
+            chart.setActivePanel(activePanel);
+            closeAllDrawerPopovers();
+        });
+    });
+
+    // Close sub-chart button
+    document.getElementById('closeSubChartBtn')?.addEventListener('click', () => {
+        activePanel = 'none';
+        panelButtons.forEach(b => {
+            if (b.dataset.panel === 'none') b.classList.add('active');
+            else b.classList.remove('active');
+        });
+        if (activePanelLabel) activePanelLabel.textContent = 'Panels: None ▾';
+        chart.setActivePanel('none');
+    });
+
+    async function loadChartData(symbol, reqId = null) {
         const target = symbol || activeSymbol;
         if (!target) return;
+        const currentId = reqId || currentStockDrawerRequestId;
+
         try {
-            const series = await API.getCandles(target, activeChartTimeframe);
-            if (activeSymbol !== target) return; // Discard stale response
+            const series = await API.getCandles(target, activeChartTimeframe, activeBandTimeframe);
+            if (activeSymbol !== target || currentStockDrawerRequestId !== currentId) return; // Discard stale response
             chart.render(series);
 
             const priceBadge = document.getElementById('activePrice');
@@ -1150,7 +1672,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 if (widthInput) widthInput.value = '';
             }
         } catch (err) {
-            if (activeSymbol === target) {
+            if (activeSymbol === target && currentStockDrawerRequestId === currentId) {
                 console.error('Failed to load chart data:', err);
                 const errorMsg = document.getElementById('drawerErrorMsg');
                 if (errorMsg) {
@@ -1188,11 +1710,18 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
     }
 
-    async function loadStockPanel(symbol) {
+    async function loadStockPanel(symbol, reqId = null) {
         const target = symbol || activeSymbol;
         if (!target) return;
+        const currentId = reqId || currentStockDrawerRequestId;
+
         const matrixBody = document.getElementById('liveMatrixBody');
         const drawerMeta = document.getElementById('drawerMeta');
+        const nameEl = document.getElementById('activeStockName');
+        const sectorBadge = document.getElementById('activeSectorBadge');
+        const capBadge = document.getElementById('activeCapBadge');
+        const gradeBadge = document.getElementById('activeGradeBadge');
+        const fnoBadge = document.getElementById('activeFnoBadge');
         const athDiffBadge = document.getElementById('activeAthDiff');
         const icBadge = document.getElementById('activeIcBadge');
         const bandStatusBadge = document.getElementById('activeBandStatus');
@@ -1200,10 +1729,61 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         try {
             const panel = await API.getStockPanel(target);
-            if (activeSymbol !== target) return; // Discard stale response
+            if (activeSymbol !== target || currentStockDrawerRequestId !== currentId) return; // Discard stale response
 
             if (drawerMeta) {
                 drawerMeta.textContent = `${panel.symbol} · ${panel.exchange || 'NSE'} · Live Analytical Matrix`;
+            }
+
+            // Populate Metadata Badges
+            if (nameEl) {
+                if (panel.name) {
+                    nameEl.textContent = panel.name;
+                    nameEl.style.display = 'inline';
+                } else {
+                    nameEl.style.display = 'none';
+                }
+            }
+
+            if (sectorBadge) {
+                if (panel.sector) {
+                    sectorBadge.textContent = panel.sector;
+                    sectorBadge.style.display = 'inline-block';
+                } else {
+                    sectorBadge.style.display = 'none';
+                }
+            }
+
+            if (capBadge) {
+                const grp = panel.grp || '';
+                const mcap = panel.mcap;
+                if (grp) {
+                    let capText = grp;
+                    if (mcap && typeof mcap === 'number') {
+                        capText += ` · ₹${mcap.toFixed(1)} Cr`;
+                    }
+                    capBadge.textContent = capText;
+                    capBadge.style.display = 'inline-block';
+                } else {
+                    capBadge.style.display = 'none';
+                }
+            }
+
+            if (gradeBadge) {
+                if (panel.grade) {
+                    gradeBadge.textContent = `Grade ${panel.grade}`;
+                    gradeBadge.style.display = 'inline-block';
+                } else {
+                    gradeBadge.style.display = 'none';
+                }
+            }
+
+            if (fnoBadge) {
+                if (panel.fno === 'Y' || panel.fno === 'YES') {
+                    fnoBadge.style.display = 'inline-block';
+                } else {
+                    fnoBadge.style.display = 'none';
+                }
             }
 
             if (athDiffBadge) {
@@ -1247,8 +1827,9 @@ document.addEventListener('DOMContentLoaded', async () => {
                 }
             }
 
-            // Build Matrix Rows
+            // Build Categorized Multi-Timeframe Matrix
             const tfs = panel.timeframes || [];
+            const km = panel.key_metrics || {};
 
             function renderEmaCell(row) {
                 const st = (row.ema_state || '').toLowerCase();
@@ -1261,11 +1842,26 @@ document.addEventListener('DOMContentLoaded', async () => {
 
             function renderBandStateCell(row) {
                 const st = (row.band_state || '').toUpperCase();
-                const dist = row.band_distance !== null ? ` (${row.band_distance > 0 ? '+' : ''}${row.band_distance.toFixed(1)}%)` : '';
+                const dist = row.band_distance !== null && row.band_distance !== undefined ? ` (${row.band_distance > 0 ? '+' : ''}${row.band_distance.toFixed(1)}%)` : '';
                 if (st === 'ABOVE') return `<span class="badge badge-above">ABOVE${dist}</span>`;
                 if (st === 'BELOW') return `<span class="badge badge-below">BELOW${dist}</span>`;
                 if (st === 'IN') return `<span class="badge badge-in">IN${dist}</span>`;
                 return '<span class="val-null">—</span>';
+            }
+
+            function renderDmiCell(row) {
+                const tf = row.timeframe;
+                const state = km[`DMI_STATE_${tf}`];
+                const adx = km[`ADX_${tf}`];
+                if (!state || state === 'na') return '<span class="val-null">—</span>';
+                const adxPart = (typeof adx === 'number' && !isNaN(adx)) ? ` (${adx.toFixed(0)})` : '';
+                if (state === 'bullish') {
+                    return `<span class="badge badge-above">BULL${adxPart}</span>`;
+                }
+                if (state === 'bearish') {
+                    return `<span class="badge badge-below">BEAR${adxPart}</span>`;
+                }
+                return `<span class="badge badge-in">NEUTRAL${adxPart}</span>`;
             }
 
             function renderRocCell(row) {
@@ -1285,33 +1881,57 @@ document.addEventListener('DOMContentLoaded', async () => {
                 return `<span>${(row.band_width * 100).toFixed(1)}%</span>`;
             }
 
+            function renderLevelCell(val) {
+                if (val === null || val === undefined) return '<span class="val-null">—</span>';
+                return `<span>₹${val.toFixed(2)}</span>`;
+            }
+
             matrixBody.innerHTML = `
+                <!-- Category 1: TREND & ALIGNMENT -->
+                <tr class="matrix-section-header"><th colspan="7">TREND &amp; ALIGNMENT</th></tr>
                 <tr>
-                    <td>EMA 3/5 Trend</td>
+                    <td class="matrix-metric-name">EMA 3/5 State</td>
                     ${tfs.map(r => `<td>${renderEmaCell(r)}</td>`).join('')}
                 </tr>
                 <tr>
-                    <td>Band State & Dist</td>
+                    <td class="matrix-metric-name">Band State &amp; Dist</td>
                     ${tfs.map(r => `<td>${renderBandStateCell(r)}</td>`).join('')}
                 </tr>
                 <tr>
-                    <td>Band Width %</td>
-                    ${tfs.map(r => `<td>${renderBandWidthCell(r)}</td>`).join('')}
+                    <td class="matrix-metric-name">DMI Trend</td>
+                    ${tfs.map(r => `<td>${renderDmiCell(r)}</td>`).join('')}
                 </tr>
+
+                <!-- Category 2: MOMENTUM & SPEED -->
+                <tr class="matrix-section-header"><th colspan="7">MOMENTUM &amp; SPEED</th></tr>
                 <tr>
-                    <td>Return / ROC %</td>
+                    <td class="matrix-metric-name">Return / ROC %</td>
                     ${tfs.map(r => `<td>${renderRocCell(r)}</td>`).join('')}
                 </tr>
                 <tr>
-                    <td>Speed / Momentum</td>
+                    <td class="matrix-metric-name">Speed / Velocity</td>
                     ${tfs.map(r => `<td>${renderSpeedCell(r)}</td>`).join('')}
+                </tr>
+
+                <!-- Category 3: BANDS & VOLATILITY -->
+                <tr class="matrix-section-header"><th colspan="7">BANDS &amp; VOLATILITY</th></tr>
+                <tr>
+                    <td class="matrix-metric-name">Band Width %</td>
+                    ${tfs.map(r => `<td>${renderBandWidthCell(r)}</td>`).join('')}
+                </tr>
+                <tr>
+                    <td class="matrix-metric-name">Upper Level</td>
+                    ${tfs.map(r => `<td>${renderLevelCell(r.band_upper)}</td>`).join('')}
+                </tr>
+                <tr>
+                    <td class="matrix-metric-name">Lower Level</td>
+                    ${tfs.map(r => `<td>${renderLevelCell(r.band_lower)}</td>`).join('')}
                 </tr>
             `;
 
             // Build Key Technical Signals Strip
             const signalsStrip = document.getElementById('drawerSignalsStrip');
             if (signalsStrip) {
-                const km = panel.key_metrics || {};
                 let chipsHtml = '';
 
                 // 1. Sprint Consistency
@@ -1335,7 +1955,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                     `;
                 }
 
-                // 3. DMI Trend & ADX
+                // 3. DMI Daily
                 if (km.DMI_STATE_D) {
                     const adxStr = km.ADX_D !== null && km.ADX_D !== undefined ? ` (ADX: ${km.ADX_D.toFixed(1)})` : '';
                     const dipStr = km.DIP_D !== null && km.DIP_D !== undefined ? ` +DI: ${km.DIP_D.toFixed(1)}` : '';
@@ -1348,7 +1968,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                     `;
                 }
 
-                // 4. Acceleration
+                // 4. Accelerations
                 if (panel.accel_l !== null && panel.accel_l !== undefined) {
                     chipsHtml += `
                         <div class="signal-chip">
@@ -1361,7 +1981,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 signalsStrip.innerHTML = chipsHtml;
             }
         } catch (err) {
-            if (activeSymbol === target) {
+            if (activeSymbol === target && currentStockDrawerRequestId === currentId) {
                 console.error('Failed to load stock panel:', err);
             }
         }
@@ -1497,22 +2117,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Static guide buttons in initial empty table state
     document.getElementById('guideDemoBtn')?.addEventListener('click', loadDemoData);
     document.getElementById('guideLiveBtn')?.addEventListener('click', rebuildLiveDataset);
-
-    // Reset Form button
-    document.getElementById('resetFormBtn')?.addEventListener('click', () => {
-        if (confirm('Reset all screening conditions and settings?')) {
-            rulesContainer.innerHTML = '';
-            document.getElementById('rankingMetric').value = 'M_CUR';
-            document.getElementById('rankingOrder').value = 'desc';
-            document.getElementById('screenLimit').value = '20';
-            syncLimitPills(20);
-            emaToggleButtons.forEach(b => b.classList.remove('active'));
-            loadedPresetName = '';
-            isPresetModified = false;
-            onConditionChanged();
-            showToast('Screening workbench reset', 'info');
-        }
-    });
 
     // Export Handlers
     async function triggerExport(format) {

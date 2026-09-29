@@ -46,11 +46,11 @@
                 <button id="resetFormBtn" class="btn btn-ghost btn-xs" title="Reset all screening criteria">Reset All</button>
             </div>
 
-            <!-- UNIVERSE SECTION -->
-            <div class="card workbench-section">
+            <!-- CARD 1: UNIVERSE & PRESETS -->
+            <div class="card workbench-section" id="sectionUniversePresets">
                 <div class="section-title">
                     <span class="step-num">1</span>
-                    <h3>Universe</h3>
+                    <h3>Universe & Presets</h3>
                 </div>
                 <div class="form-row">
                     <div class="form-group half">
@@ -70,7 +70,21 @@
                         </select>
                     </div>
                 </div>
-                <div class="form-group">
+
+                <div class="form-group mt-2">
+                    <label for="presetSelect">Strategy Preset Recipe:</label>
+                    <select id="presetSelect" class="form-control form-control-sm">
+                        <option value="">-- Choose Preset to Load --</option>
+                    </select>
+                </div>
+                <div id="presetDesc" class="preset-description"></div>
+                <div class="preset-actions-row mt-1">
+                    <button id="loadPresetBtn" class="btn btn-secondary btn-sm" title="Load selected preset into editor">Load</button>
+                    <button id="revertPresetBtn" class="btn btn-ghost btn-sm" disabled title="Revert edits back to the pristine preset recipe">Revert</button>
+                    <button id="saveAsPresetBtn" class="btn btn-outline btn-sm" title="Save current setup as user preset">Save As...</button>
+                </div>
+
+                <div class="form-group mt-2">
                     <label for="stockQuickSearch">Quick Find Stock:</label>
                     <div class="search-box">
                         <input type="text" id="stockQuickSearch" class="form-control form-control-sm" placeholder="Search symbol (e.g. RELIANCE)...">
@@ -79,30 +93,11 @@
                 </div>
             </div>
 
-            <!-- PRESETS & STRATEGY SECTION -->
-            <div class="card workbench-section">
+            <!-- CARD 2: CONDITIONS (QUALIFY) -->
+            <div class="card workbench-section" id="sectionConditions">
                 <div class="section-title">
                     <span class="step-num">2</span>
-                    <h3>Strategy & Presets</h3>
-                </div>
-                <div class="form-group">
-                    <label for="presetSelect">Select Preset (Load into Editor):</label>
-                    <select id="presetSelect" class="form-control form-control-sm">
-                        <option value="">-- Choose a Preset to Load --</option>
-                    </select>
-                </div>
-                <div id="presetDesc" class="preset-description"></div>
-                <div class="preset-actions-row">
-                    <button id="loadPresetBtn" class="btn btn-secondary btn-sm half" title="Load selected preset into editor">Load Preset</button>
-                    <button id="saveAsPresetBtn" class="btn btn-outline btn-sm half" title="Save current setup as user preset">Save As...</button>
-                </div>
-            </div>
-
-            <!-- CONDITIONS SECTION -->
-            <div class="card workbench-section">
-                <div class="section-title">
-                    <span class="step-num">3</span>
-                    <h3>Conditions</h3>
+                    <h3>Conditions (QUALIFY)</h3>
                     <span class="badge badge-counter" id="activeRuleCountBadge">0 rules</span>
                 </div>
 
@@ -110,28 +105,28 @@
                 <div class="shortcuts-panel">
                     <div class="shortcut-label">
                         <span>Quick EMA Uptrend:</span>
-                        <small class="text-muted">(EMA3 ≥ EMA5)</small>
+                        <small class="text-muted">(EMA3 &ge; EMA5)</small>
                     </div>
                     <div class="ema-toggle-strip" id="emaQuickToggles">
-                        <button class="ema-btn" data-tf="D" title="Toggle Daily EMA Up">D</button>
-                        <button class="ema-btn" data-tf="W" title="Toggle Weekly EMA Up">W</button>
-                        <button class="ema-btn" data-tf="M" title="Toggle Monthly EMA Up">M</button>
-                        <button class="ema-btn" data-tf="Q" title="Toggle Quarterly EMA Up">Q</button>
-                        <button class="ema-btn" data-tf="H" title="Toggle Half-Yearly EMA Up">H</button>
-                        <button class="ema-btn" data-tf="Y" title="Toggle Yearly EMA Up">Y</button>
+                        <button type="button" class="ema-btn" data-tf="D" title="Toggle Daily EMA Up">D</button>
+                        <button type="button" class="ema-btn" data-tf="W" title="Toggle Weekly EMA Up">W</button>
+                        <button type="button" class="ema-btn" data-tf="M" title="Toggle Monthly EMA Up">M</button>
+                        <button type="button" class="ema-btn" data-tf="Q" title="Toggle Quarterly EMA Up">Q</button>
+                        <button type="button" class="ema-btn" data-tf="H" title="Toggle Half-Yearly EMA Up">H</button>
+                        <button type="button" class="ema-btn" data-tf="Y" title="Toggle Yearly EMA Up">Y</button>
                     </div>
 
                     <div class="shortcut-label mt-2">
                         <span>Quick Band Position:</span>
                     </div>
                     <div class="band-quick-buttons">
-                        <button class="btn btn-xs btn-outline" id="quickBandAboveBtn">+ Above Monthly Band</button>
-                        <button class="btn btn-xs btn-outline" id="quickBandOutsideBtn">+ Outside Band (2+ TF)</button>
-                        <button class="btn btn-xs btn-outline" id="quickReactionTradeBtn">+ Reaction Trade (Below Y, W Up)</button>
+                        <button type="button" class="btn btn-xs btn-outline" id="quickBandAboveBtn">+ Above Monthly Band</button>
+                        <button type="button" class="btn btn-xs btn-outline" id="quickBandOutsideBtn">+ Outside Band (2+ TF)</button>
+                        <button type="button" class="btn btn-xs btn-outline" id="quickReactionTradeBtn">+ Reaction Trade (Below Y, W Up)</button>
                     </div>
                 </div>
 
-                <!-- Advanced Condition Tree Builder -->
+                <!-- Dynamic Condition Tree Builder -->
                 <div class="conditions-builder mt-3">
                     <div class="group-match-bar">
                         <span>Match:</span>
@@ -139,6 +134,7 @@
                             <option value="all" selected>ALL Conditions (AND)</option>
                             <option value="any">ANY Condition (OR)</option>
                         </select>
+                        <button type="button" id="rootGroupNotToggle" class="group-not-toggle" title="Invert entire screen criteria (NOT logic)">NOT</button>
                     </div>
 
                     <div id="filterRulesContainer" class="rules-container">
@@ -146,97 +142,109 @@
                     </div>
 
                     <div class="rule-builder-actions">
-                        <button id="addRuleBtn" class="btn btn-outline btn-sm">+ Add Condition</button>
-                        <button id="addGroupBtn" class="btn btn-ghost btn-sm">+ Add Nested Group</button>
+                        <button type="button" id="addRuleBtn" class="btn btn-outline btn-sm">+ Add Condition</button>
+                        <button type="button" id="addGroupBtn" class="btn btn-ghost btn-sm">+ Add Nested Group</button>
                     </div>
                 </div>
             </div>
 
-            <!-- RANKING & SELECTION SECTION -->
-            <div class="card workbench-section">
+            <!-- CARD 3: RANKING (ORDER) -->
+            <div class="card workbench-section" id="sectionRanking">
                 <div class="section-title">
-                    <span class="step-num">4</span>
-                    <h3>Ranking & Selection</h3>
+                    <span class="step-num">3</span>
+                    <h3>Ranking (ORDER)</h3>
                 </div>
                 <div class="form-group">
-                    <label for="rankingMetric">Primary Ranking Metric (ORDER):</label>
+                    <label for="rankingMetric">Primary Ranking Metric:</label>
                     <select id="rankingMetric" class="form-control form-control-sm">
                         <option value="">None (Unranked)</option>
                     </select>
                 </div>
-                <div class="form-row">
-                    <div class="form-group half">
-                        <label for="rankingOrder">Direction:</label>
-                        <select id="rankingOrder" class="form-control form-control-sm">
-                            <option value="desc" selected>Descending (Highest #1)</option>
-                            <option value="asc">Ascending (Lowest #1)</option>
-                        </select>
-                    </div>
-                    <div class="form-group half">
-                        <label for="screenLimit">Select Top N:</label>
-                        <input type="number" id="screenLimit" class="form-control form-control-sm" value="20" min="1" max="2000">
-                    </div>
+                <div class="form-group">
+                    <label for="rankingOrder">Direction:</label>
+                    <select id="rankingOrder" class="form-control form-control-sm">
+                        <option value="desc" selected>Descending (Highest #1)</option>
+                        <option value="asc">Ascending (Lowest #1)</option>
+                    </select>
                 </div>
 
-                <!-- Quick Selection Pill Buttons -->
-                <div class="quick-limit-pills">
-                    <button class="limit-pill" data-limit="10">Top 10</button>
-                    <button class="limit-pill active" data-limit="20">Top 20</button>
-                    <button class="limit-pill" data-limit="50">Top 50</button>
-                    <button class="limit-pill" data-limit="100">Top 100</button>
-                    <button class="limit-pill" data-limit="0">All</button>
-                </div>
-
-                <!-- Progressive Disclosure: Secondary Ranking & Rank Cutoffs -->
+                <!-- Progressive Disclosure: Secondary Tie-Breaker -->
                 <div class="advanced-disclosure mt-2">
                     <details>
-                        <summary class="disclosure-toggle">Advanced Ranking & Cutoffs</summary>
+                        <summary class="disclosure-toggle">Secondary Ranking (Tie-Breaker)</summary>
                         <div class="disclosure-content pt-2">
                             <div class="form-group">
-                                <label for="secondaryRankingMetric">Secondary Ranking (Tie-Breaker):</label>
+                                <label for="secondaryRankingMetric">Tie-Breaker Metric:</label>
                                 <select id="secondaryRankingMetric" class="form-control form-control-sm">
                                     <option value="">Default (Symbol Ascending)</option>
                                 </select>
-                            </div>
-                            <div class="form-group">
-                                <label>Cohort Survival Cutoffs:</label>
-                                <div id="cutoffsContainer" class="cutoffs-container"></div>
-                                <button id="addCutoffBtn" class="btn btn-ghost btn-xs">+ Add Rank Threshold (e.g. Rank &le; 100)</button>
                             </div>
                         </div>
                     </details>
                 </div>
             </div>
 
-            <!-- DISPLAY COLUMNS SECTION -->
-            <div class="card workbench-section">
+            <!-- CARD 4: SELECTION (SHOW) -->
+            <div class="card workbench-section" id="sectionSelection">
+                <div class="section-title">
+                    <span class="step-num">4</span>
+                    <h3>Selection (SHOW)</h3>
+                </div>
+                <div class="form-group">
+                    <label for="screenLimit">Select Top N:</label>
+                    <input type="number" id="screenLimit" class="form-control form-control-sm" value="20" min="1" max="2000" placeholder="All Qualified">
+                </div>
+
+                <!-- Quick Selection Pill Buttons -->
+                <div class="quick-limit-pills">
+                    <button type="button" class="limit-pill" data-limit="10">Top 10</button>
+                    <button type="button" class="limit-pill active" data-limit="20">Top 20</button>
+                    <button type="button" class="limit-pill" data-limit="50">Top 50</button>
+                    <button type="button" class="limit-pill" data-limit="100">Top 100</button>
+                    <button type="button" class="limit-pill" data-limit="0">All</button>
+                </div>
+
+                <!-- Progressive Disclosure: Rank Survival Cutoffs -->
+                <div class="advanced-disclosure mt-2">
+                    <details open>
+                        <summary class="disclosure-toggle">Rank Survival Cutoffs</summary>
+                        <div class="disclosure-content pt-2">
+                            <small class="text-muted d-block mb-1">Filter stocks by ordinal rank thresholds (e.g. Month Rank &le; 100):</small>
+                            <div id="cutoffsContainer" class="cutoffs-container"></div>
+                            <button type="button" id="addCutoffBtn" class="btn btn-ghost btn-xs mt-1">+ Add Rank Cutoff (e.g. Rank &le; 100)</button>
+                        </div>
+                    </details>
+                </div>
+            </div>
+
+            <!-- CARD 5: DISPLAY COLUMNS & ACTIONS -->
+            <div class="card workbench-section" id="sectionColumns">
                 <div class="section-title">
                     <span class="step-num">5</span>
-                    <h3>Display Columns</h3>
+                    <h3>Display Columns & Actions</h3>
                 </div>
                 <div class="column-presets-bar">
-                    <button class="col-preset-btn active" data-preset="summary">Default</button>
-                    <button class="col-preset-btn" data-preset="returns">Returns</button>
-                    <button class="col-preset-btn" data-preset="sprint">Speed/Sprint</button>
-                    <button class="col-preset-btn" data-preset="bands">Bands</button>
-                    <button class="col-preset-btn" data-preset="emas">All EMAs</button>
-                    <button class="col-preset-btn" data-preset="strength">Strength (DMI)</button>
-                    <button class="col-preset-btn" data-preset="all">All Available</button>
+                    <button type="button" class="col-preset-btn active" data-preset="summary">Default</button>
+                    <button type="button" class="col-preset-btn" data-preset="returns">Returns</button>
+                    <button type="button" class="col-preset-btn" data-preset="sprint">Speed/Sprint</button>
+                    <button type="button" class="col-preset-btn" data-preset="bands">Bands</button>
+                    <button type="button" class="col-preset-btn" data-preset="emas">All EMAs</button>
+                    <button type="button" class="col-preset-btn" data-preset="strength">Strength (DMI)</button>
+                    <button type="button" class="col-preset-btn" data-preset="all">All Available</button>
                 </div>
                 <div class="form-group mt-2">
                     <input type="text" id="customColumns" class="form-control form-control-sm" placeholder="Summary columns active">
                 </div>
-            </div>
 
-            <!-- PRIMARY ACTIONS BAR -->
-            <div class="workbench-actions">
-                <button id="runScreenBtn" class="btn btn-primary btn-block btn-lg">
-                    <span class="icon">🚀</span> RUN SCREEN
-                </button>
-                <div class="export-btn-group">
-                    <button id="exportXlsxBtn" class="btn btn-secondary btn-sm" title="Export formatted Excel (.xlsx)">📥 XLSX</button>
-                    <button id="exportCsvBtn" class="btn btn-secondary btn-sm" title="Export standard CSV (.csv)">📄 CSV</button>
-                    <button id="exportJsonBtn" class="btn btn-secondary btn-sm" title="Export JSON (.json)">📋 JSON</button>
+                <div class="workbench-actions mt-3">
+                    <button type="button" id="runScreenBtn" class="btn btn-primary btn-block btn-lg">
+                        <span class="icon">🚀</span> RUN SCREEN
+                    </button>
+                    <div class="export-btn-group">
+                        <button type="button" id="exportXlsxBtn" class="btn btn-secondary btn-sm" title="Export formatted Excel (.xlsx)">📥 XLSX</button>
+                        <button type="button" id="exportCsvBtn" class="btn btn-secondary btn-sm" title="Export standard CSV (.csv)">📄 CSV</button>
+                        <button type="button" id="exportJsonBtn" class="btn btn-secondary btn-sm" title="Export JSON (.json)">📋 JSON</button>
+                    </div>
                 </div>
             </div>
         </aside>
@@ -307,8 +315,15 @@
             <div class="drawer-identity-group">
                 <div class="drawer-symbol-title">
                     <h2 id="activeSymbol" class="drawer-stock-symbol">—</h2>
+                    <span id="activeStockName" class="drawer-stock-name" style="display: none;"></span>
                     <span id="activeExchange" class="badge badge-neutral">NSE</span>
                     <span id="activePrice" class="price-badge">—</span>
+                </div>
+                <div class="drawer-meta-badges">
+                    <span id="activeSectorBadge" class="badge badge-meta" style="display: none;"></span>
+                    <span id="activeCapBadge" class="badge badge-meta" style="display: none;"></span>
+                    <span id="activeGradeBadge" class="badge badge-grade" style="display: none;"></span>
+                    <span id="activeFnoBadge" class="badge badge-fno" style="display: none;">F&amp;O</span>
                 </div>
                 <div class="drawer-status-badges">
                     <span id="activeAthDiff" class="badge badge-ath" style="display: none;">—</span>
@@ -329,28 +344,103 @@
         <div id="drawerErrorMsg" class="drawer-error-alert" style="display: none;"></div>
 
         <div class="drawer-chart-toolbar">
-            <div class="timeframe-buttons" id="tfButtons">
-                <button class="tf-btn active" data-tf="D" title="Daily Bars">D</button>
-                <button class="tf-btn" data-tf="W" title="Weekly Bars">W</button>
-                <button class="tf-btn" data-tf="M" title="Monthly Bars">M</button>
-                <button class="tf-btn" data-tf="Q" title="Quarterly Bars">Q</button>
-                <button class="tf-btn" data-tf="H" title="Half-Yearly Bars">H</button>
-                <button class="tf-btn" data-tf="Y" title="Yearly Bars">Y</button>
+            <div class="toolbar-left-group">
+                <div class="timeframe-buttons" id="tfButtons" role="group" aria-label="Chart Timeframe">
+                    <button class="tf-btn active" data-tf="D" title="Daily Bars">D</button>
+                    <button class="tf-btn" data-tf="W" title="Weekly Bars">W</button>
+                    <button class="tf-btn" data-tf="M" title="Monthly Bars">M</button>
+                    <button class="tf-btn" data-tf="Q" title="Quarterly Bars">Q</button>
+                    <button class="tf-btn" data-tf="H" title="Half-Yearly Bars">H</button>
+                    <button class="tf-btn" data-tf="Y" title="Yearly Bars">Y</button>
+                </div>
+                <div class="band-tf-wrap">
+                    <label for="bandTfSelect" class="toolbar-label">Band:</label>
+                    <select id="bandTfSelect" class="toolbar-select" title="Envelope Band Timeframe">
+                        <option value="">Same as Chart</option>
+                        <option value="D">Daily (D)</option>
+                        <option value="W">Weekly (W)</option>
+                        <option value="M">Monthly (M)</option>
+                        <option value="Q">Quarterly (Q)</option>
+                        <option value="H">Half-Yearly (H)</option>
+                        <option value="Y">Yearly (Y)</option>
+                        <option value="NONE">Off / None</option>
+                    </select>
+                </div>
             </div>
-            <div class="band-metrics" id="bandMetrics">
-                <span>Basis: <strong id="valBasis">—</strong></span>
-                <span>Upper: <strong id="valUpper">—</strong></span>
-                <span>Lower: <strong id="valLower">—</strong></span>
-                <span>Width: <strong id="valWidth">—</strong></span>
+
+            <div class="toolbar-middle-group">
+                <!-- Grouped Overlays Popover -->
+                <div class="dropdown-control" id="overlaysDropdown">
+                    <button type="button" class="btn btn-sm btn-outline dropdown-toggle" id="overlaysToggleBtn" aria-haspopup="true" aria-expanded="false" title="Toggle price chart overlays">
+                        Overlays ▾
+                    </button>
+                    <div class="dropdown-menu popover-menu" id="overlaysMenu" style="display: none;">
+                        <div class="menu-section-header">Trend</div>
+                        <label class="menu-checkbox-item"><input type="checkbox" id="chkEma3" checked> <span class="swatch swatch-ema3"></span> <span>EMA 3</span></label>
+                        <label class="menu-checkbox-item"><input type="checkbox" id="chkEma5" checked> <span class="swatch swatch-ema5"></span> <span>EMA 5</span></label>
+                        <label class="menu-checkbox-item"><input type="checkbox" id="chkSma20"> <span class="swatch swatch-sma20"></span> <span>SMA 20 (Basis)</span></label>
+                        <label class="menu-checkbox-item"><input type="checkbox" id="chkAvgPrice"> <span class="swatch swatch-avg"></span> <span>Average Price</span></label>
+                        <div class="menu-section-header">Volatility &amp; Channels</div>
+                        <label class="menu-checkbox-item"><input type="checkbox" id="chkBands" checked> <span class="swatch swatch-bands"></span> <span>YOGI Bands</span></label>
+                        <label class="menu-checkbox-item"><input type="checkbox" id="chkBollinger"> <span class="swatch swatch-bollinger"></span> <span>Bollinger Bands (20, 2)</span></label>
+                        <label class="menu-checkbox-item"><input type="checkbox" id="chkDonchian"> <span class="swatch swatch-donchian"></span> <span>Donchian Channels (20)</span></label>
+                        <label class="menu-checkbox-item"><input type="checkbox" id="chkAtrBands"> <span class="swatch swatch-atr"></span> <span>ATR Bands (14, 2)</span></label>
+                        <label class="menu-checkbox-item"><input type="checkbox" id="chkVwap"> <span class="swatch swatch-vwap"></span> <span>VWAP</span></label>
+                        <div class="menu-section-header">Volume</div>
+                        <label class="menu-checkbox-item"><input type="checkbox" id="chkVolume" checked> <span class="swatch swatch-volume"></span> <span>Volume Histogram</span></label>
+                    </div>
+                </div>
+
+                <!-- Grouped Panels Popover -->
+                <div class="dropdown-control" id="panelsDropdown">
+                    <button type="button" class="btn btn-sm btn-outline dropdown-toggle" id="panelsToggleBtn" aria-haspopup="true" aria-expanded="false" title="Select analytical sub-panel">
+                        <span id="activePanelLabel">Panels: None ▾</span>
+                    </button>
+                    <div class="dropdown-menu popover-menu" id="panelsMenu" style="display: none;">
+                        <button type="button" class="menu-option-btn active" data-panel="none">None (Price Chart Only)</button>
+                        <div class="menu-section-header">Oscillators</div>
+                        <button type="button" class="menu-option-btn" data-panel="rsi">RSI (14)</button>
+                        <button type="button" class="menu-option-btn" data-panel="macd">MACD (12, 26, 9)</button>
+                        <button type="button" class="menu-option-btn" data-panel="dmi">DMI / ADX (Wilder)</button>
+                        <button type="button" class="menu-option-btn" data-panel="obv">On-Balance Volume (OBV)</button>
+                        <button type="button" class="menu-option-btn" data-panel="mfi">Money Flow Index (MFI 14)</button>
+                        <div class="menu-section-header">YOGI Custom Curves</div>
+                        <button type="button" class="menu-option-btn" data-panel="sprint">YOGI Sprint Speed (4w)</button>
+                        <button type="button" class="menu-option-btn" data-panel="accel">YOGI Acceleration (4w vs 52w)</button>
+                        <button type="button" class="menu-option-btn" data-panel="band_dist">YOGI Band Distance</button>
+                        <button type="button" class="menu-option-btn" data-panel="yogi_roc">YOGI ROC (21d)</button>
+                    </div>
+                </div>
             </div>
-            <div class="band-tuner">
-                <label for="bandWidthInput">Band %:</label>
-                <input type="number" id="bandWidthInput" step="0.5" min="0" max="100" placeholder="12.0">
-                <button id="saveBandBtn" class="btn btn-sm btn-outline">Save</button>
+
+            <div class="toolbar-right-group">
+                <div class="band-metrics" id="bandMetrics">
+                    <span>Basis: <strong id="valBasis">—</strong></span>
+                    <span>Upper: <strong id="valUpper">—</strong></span>
+                    <span>Lower: <strong id="valLower">—</strong></span>
+                    <span>Width: <strong id="valWidth">—</strong></span>
+                </div>
+                <div class="band-tuner">
+                    <label for="bandWidthInput">Band %:</label>
+                    <input type="number" id="bandWidthInput" step="0.5" min="0" max="100" placeholder="12.0">
+                    <button id="saveBandBtn" class="btn btn-sm btn-outline">Save</button>
+                </div>
             </div>
         </div>
 
         <div id="chartContainer" class="chart-viewport"></div>
+
+        <!-- Analytical Sub-Panel (Progressive Disclosure) -->
+        <div id="subChartContainer" class="subchart-viewport" style="display: none;">
+            <div class="subchart-header">
+                <div class="subchart-header-left">
+                    <span id="subChartTitle" class="subchart-title">Panel</span>
+                    <div class="subchart-legend" id="subChartLegend"></div>
+                </div>
+                <button id="closeSubChartBtn" class="subchart-close-btn" title="Close analytical panel" aria-label="Close panel">✕</button>
+            </div>
+            <div id="subChartCanvas" class="subchart-canvas"></div>
+        </div>
 
         <!-- Live Multi-Timeframe Analysis Matrix -->
         <div class="live-panel-drawer" id="livePanelDrawer">

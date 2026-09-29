@@ -119,8 +119,12 @@ const API = {
         return await res.json();
     },
 
-    async getCandles(symbol, tf = 'D', exchange = 'NSE', years = 2) {
-        const res = await fetch(`/api/candles/${encodeURIComponent(symbol)}?tf=${encodeURIComponent(tf)}&exchange=${encodeURIComponent(exchange)}&years=${years}`);
+    async getCandles(symbol, tf = 'D', bandTf = null, exchange = 'NSE', years = 2) {
+        let url = `/api/candles/${encodeURIComponent(symbol)}?tf=${encodeURIComponent(tf)}&exchange=${encodeURIComponent(exchange)}&years=${years}`;
+        if (bandTf !== null && bandTf !== undefined && bandTf !== '') {
+            url += `&band_tf=${encodeURIComponent(bandTf)}`;
+        }
+        const res = await fetch(url);
         if (!res.ok) await _handleError(res, 'Failed to fetch candles');
         return await res.json();
     },

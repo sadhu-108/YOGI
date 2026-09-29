@@ -235,11 +235,23 @@ class CockpitTable {
             return `<span class="badge badge-neutral">${safeVal}</span>`;
         }
 
-        if (key === 'DMI_STATE_D') {
+        if (key.startsWith('DMI_') || key === 'DMI_STATE_D') {
             const st = String(val).toLowerCase();
             if (st === 'bullish') return `<span class="badge badge-dmi-bullish" title="DMI Trend: Bullish (+DI > -DI and ADX strong)">BULLISH</span>`;
             if (st === 'bearish') return `<span class="badge badge-dmi-bearish" title="DMI Trend: Bearish (-DI > +DI)">BEARISH</span>`;
-            return `<span class="badge badge-dmi-neutral" title="DMI Trend: Neutral">NEUTRAL</span>`;
+            if (st === 'neutral') return `<span class="badge badge-dmi-neutral" title="DMI Trend: Neutral">NEUTRAL</span>`;
+            return safeVal;
+        }
+
+        // Candlestick pattern flags (Y/N)
+        if (key.startsWith('CD_') || key.startsWith('CW_') || key.startsWith('CM_') || key.startsWith('CQ_') || key.startsWith('CH_') || key.startsWith('CY_')) {
+            const isPattern = String(val).toUpperCase() === 'Y';
+            if (isPattern) {
+                const patName = key.replace(/^(CD_|CW_|CM_|CQ_|CH_|CY_)/, '');
+                return `<span class="badge badge-above" title="${patName} Active">★ ${patName}</span>`;
+            } else if (String(val).toUpperCase() === 'N') {
+                return '<span class="val-null">—</span>';
+            }
         }
 
         if (key === 'fno') {
@@ -257,13 +269,13 @@ class CockpitTable {
 
         // Numeric percentage / ROC formatting
         if (typeof val === 'number') {
-            if (key === 'ADX_D') {
+            if (key.startsWith('ADX_')) {
                 const formatted = val.toFixed(1);
                 const strong = val >= 25;
                 return `<span class="${strong ? 'badge badge-adx-strong' : 'val-neutral'}" title="${strong ? 'Strong Trend (ADX >= 25)' : 'Weak / Ranging Trend (ADX < 25)'}">${formatted}</span>`;
             }
-            if (key === 'DIP_D' || key === 'DIM_D') {
-                const cls = key === 'DIP_D' ? 'val-positive' : 'val-negative';
+            if (key.startsWith('DIP_') || key.startsWith('DIM_')) {
+                const cls = key.startsWith('DIP_') ? 'val-positive' : 'val-negative';
                 return `<span class="${cls}">${val.toFixed(1)}</span>`;
             }
             if (key === 'mcap') {

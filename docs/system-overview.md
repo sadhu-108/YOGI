@@ -265,11 +265,11 @@ flowchart TD
 | **Step 8** | **Calculation Modules** | `src/yogi/calculation/` | **COMPLETED / FROZEN** | 122/122 tests passing (116 unit, 6 golden regression across 5 pillars) |
 | **Step 9** | **Screening Engine** | `filter/`, `ranking/`, `selection/`, `strategy/` | **COMPLETED / FROZEN** | 41/41 tests passing |
 | **Step 10** | **Results Engine** | `src/yogi/results/` | **COMPLETED / FROZEN** | 14/14 tests passing |
-| **Step 11** | **Cockpit UI & Master UX** | `src/yogi/cockpit/` | **COMPLETED / FROZEN** | 150/150 tests passing (API, charting, state, demo, Twelve Data, F04, F05, Batches 1/2/3A/3B/3C/3D/4/5) |
+| **Step 11** | **Cockpit UI & Master UX** | `src/yogi/cockpit/` | **COMPLETED / FROZEN (Batches U1 & U2)** | 173/173 tests passing (API, charting, state, demo, Twelve Data, F04, F05, Batches 1/2/3A/3B/3C/3D/4/5, Batch U1, Batch U2) |
 | **Step 11** | **Pipeline Integration** | `src/yogi/pipeline/` | **COMPLETED / FROZEN** | 13/13 tests passing |
 | **Storage Engine** | **Persistent Bands & Metadata** | `src/yogi/storage/` | **COMPLETED / FROZEN (Batches 4 & 5)** | 36/36 tests passing (audit, backups, restore, metadata repo) |
 
-**Total Test Suite Baseline**: **557 / 557 tests passing** (100% pass rate across unit, integration, live smoke, and golden regression suites).
+**Total Test Suite Baseline**: **580 / 580 tests passing** (100% pass rate across unit, integration, live smoke, golden regression suites, Batch U1, and Batch U2).
 
 ---
 
