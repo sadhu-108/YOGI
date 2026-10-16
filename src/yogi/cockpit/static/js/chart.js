@@ -327,6 +327,8 @@ class CockpitChart {
                 try { this.candleSeries.removePriceLine(this.avgPriceLine); } catch (_) {}
                 this.avgPriceLine = null;
             }
+        } else if (this.container) {
+            this.container.innerHTML = '';
         }
 
         this._clearSubChart();
@@ -500,6 +502,8 @@ class CockpitChart {
         if (this.chart && w > 0) {
             this.chart.applyOptions({ width: w, height: h });
             try { this.chart.timeScale().fitContent(); } catch (_) {}
+        } else if (!this.chart && this.currentData) {
+            this._renderFallback(this.currentData);
         }
 
         if (this.subChart && w > 0 && this.subContainer) {
@@ -533,9 +537,26 @@ class CockpitChart {
         if (!seriesData || !seriesData.candles) return;
         this.currentData = seriesData;
 
+        if (!this.chart && window.LightweightCharts) {
+            this.init();
+        }
+
         if (this.chart) {
-            // Sort candles chronologically
-            const candles = [...seriesData.candles].sort((a, b) => (a.time || '').localeCompare(b.time || ''));
+            // Sort candles chronologically and ensure timestamps are unique and values valid
+            const rawCandles = seriesData.candles || [];
+            const sortedCandles = [...rawCandles].sort((a, b) => (a.time || '').localeCompare(b.time || ''));
+            const candles = [];
+            const seenTimes = new Set();
+            for (const c of sortedCandles) {
+                if (c && c.time && typeof c.open === 'number' && typeof c.high === 'number' &&
+                    typeof c.low === 'number' && typeof c.close === 'number' &&
+                    isFinite(c.open) && isFinite(c.high) && isFinite(c.low) && isFinite(c.close)) {
+                    if (!seenTimes.has(c.time)) {
+                        seenTimes.add(c.time);
+                        candles.push(c);
+                    }
+                }
+            }
             this.candleSeries.setData(candles);
 
             this.applyOverlays();
@@ -862,6 +883,7 @@ class CockpitChart {
     }
 
     _renderFallback(data) {
+        if (!this.container) return;
         this.container.innerHTML = '';
         const canvas = document.createElement('canvas');
         canvas.width = this.container.clientWidth || 600;
@@ -872,45 +894,98 @@ class CockpitChart {
         ctx.fillStyle = '#131722';
         ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-        canvas.addEventListener('click', (e) => {
-            if (!this.isMeasuring) return;
-            const rect = canvas.getBoundingClientRect();
-            const y = e.clientY - rect.top;
-            const x = e.clientX - rect.left;
-            const availableH = canvas.height - 40;
-            const ratio = (canvas.height - 20 - y) / (availableH || 1);
-            const price = minP + ratio * priceRange;
-            const barIdx = Math.max(0, Math.min(candles.length - 1, Math.floor((x - 20) / (stepX || 1))));
-            const time = candles[barIdx] ? candles[barIdx].time : null;
-            this.recordMeasurePoint(price, time);
-        });
-
-        const candles = data.candles || [];
-        if (candles.length === 0) {
+        const rawCandles = (data && data.candles) || [];
+        if (rawCandles.length === 0) {
             ctx.fillStyle = '#8b949e';
             ctx.font = '12px sans-serif';
             ctx.fillText('No candle data available', 20, 40);
             return;
         }
 
-        const allPrices = [...candles.map(c => c.high), ...candles.map(c => c.low)];
-        if (this.overlays.bands && data.band_upper_curve) {
-            data.band_upper_curve.forEach(pt => { if (typeof pt.value === 'number') allPrices.push(pt.value); });
-        }
-        if (this.overlays.bands && data.band_lower_curve) {
-            data.band_lower_curve.forEach(pt => { if (typeof pt.value === 'number') allPrices.push(pt.value); });
+        // Sort chronologically and deduplicate timestamps
+        const sortedCandles = [...rawCandles].sort((a, b) => (a.time || '').localeCompare(b.time || ''));
+        const seenTimes = new Set();
+        const validCandles = [];
+        for (const c of sortedCandles) {
+            if (c && c.time && typeof c.open === 'number' && typeof c.high === 'number' &&
+                typeof c.low === 'number' && typeof c.close === 'number' &&
+                isFinite(c.open) && isFinite(c.high) && isFinite(c.low) && isFinite(c.close)) {
+                if (!seenTimes.has(c.time)) {
+                    seenTimes.add(c.time);
+                    validCandles.push(c);
+                }
+            }
         }
 
-        const minP = Math.min(...allPrices) * 0.98;
-        const maxP = Math.max(...allPrices) * 1.02;
-        const priceRange = maxP - minP || 1;
+        if (validCandles.length === 0) {
+            ctx.fillStyle = '#8b949e';
+            ctx.font = '12px sans-serif';
+            ctx.fillText('No valid candle data available', 20, 40);
+            return;
+        }
 
-        const getY = (val) => canvas.height - 20 - ((val - minP) / priceRange) * (canvas.height - 40);
-        const stepX = (canvas.width - 40) / candles.length;
+        // For fallback canvas readability: if more than 90 bars, show the most recent 90 bars
+        // so individual candlestick wicks and bodies are clearly distinguished
+        const maxBarsToShow = 90;
+        const candles = validCandles.length > maxBarsToShow ? validCandles.slice(-maxBarsToShow) : validCandles;
+        const visibleTimes = new Set(candles.map(c => c.time));
+
+        const allPrices = [];
+        candles.forEach(c => {
+            allPrices.push(c.high, c.low);
+        });
+
+        // Collect band curves for visible window
+        const upperCurve = (this.overlays.bands && data.band_upper_curve)
+            ? data.band_upper_curve.filter(pt => visibleTimes.has(pt.time) && typeof pt.value === 'number' && isFinite(pt.value))
+            : [];
+        const lowerCurve = (this.overlays.bands && data.band_lower_curve)
+            ? data.band_lower_curve.filter(pt => visibleTimes.has(pt.time) && typeof pt.value === 'number' && isFinite(pt.value))
+            : [];
+
+        upperCurve.forEach(pt => allPrices.push(pt.value));
+        lowerCurve.forEach(pt => allPrices.push(pt.value));
+
+        const minP = allPrices.length > 0 ? Math.min(...allPrices) * 0.98 : 0;
+        const maxP = allPrices.length > 0 ? Math.max(...allPrices) * 1.02 : 100;
+        const priceRange = (maxP - minP) || 1;
+
+        const getY = (val) => canvas.height - 25 - ((val - minP) / priceRange) * (canvas.height - 45);
+        const stepX = (canvas.width - 50) / candles.length;
+
+        // Click listener for point-to-point measurement (DEFINED AFTER variables exist!)
+        canvas.addEventListener('click', (e) => {
+            if (!this.isMeasuring) return;
+            const rect = canvas.getBoundingClientRect();
+            const y = e.clientY - rect.top;
+            const x = e.clientX - rect.left;
+            const availableH = canvas.height - 45;
+            const ratio = (canvas.height - 25 - y) / (availableH || 1);
+            const price = minP + ratio * priceRange;
+            const barIdx = Math.max(0, Math.min(candles.length - 1, Math.floor((x - 25) / (stepX || 1))));
+            const time = candles[barIdx] ? candles[barIdx].time : null;
+            this.recordMeasurePoint(price, time);
+        });
+
+        // Draw horizontal grid lines and price axis labels
+        ctx.strokeStyle = '#1e222d';
+        ctx.lineWidth = 1;
+        ctx.fillStyle = '#6e7681';
+        ctx.font = '10px monospace';
+        const numGridLines = 4;
+        for (let g = 0; g <= numGridLines; g++) {
+            const gridPrice = minP + (priceRange * g) / numGridLines;
+            const gridY = getY(gridPrice);
+            ctx.beginPath();
+            ctx.moveTo(25, gridY);
+            ctx.lineTo(canvas.width - 25, gridY);
+            ctx.stroke();
+            ctx.fillText(`₹${gridPrice.toFixed(1)}`, canvas.width - 65, gridY - 2);
+        }
 
         // Draw candles
         candles.forEach((c, i) => {
-            const x = 20 + i * stepX + stepX / 2;
+            const x = 25 + i * stepX + stepX / 2;
             const openY = getY(c.open);
             const closeY = getY(c.close);
             const highY = getY(c.high);
@@ -929,13 +1004,13 @@ class CockpitChart {
             // Body
             const bodyY = Math.min(openY, closeY);
             const bodyH = Math.max(Math.abs(closeY - openY), 1);
-            const w = Math.max(stepX * 0.7, 2);
+            const w = Math.max(stepX * 0.7, 1);
             ctx.fillRect(x - w / 2, bodyY, w, bodyH);
         });
 
         // Draw Band Envelope Curves (Upper = Blue dashed, Lower = Red dashed)
         if (this.overlays.bands) {
-            const timeToX = new Map(candles.map((c, i) => [c.time, 20 + i * stepX + stepX / 2]));
+            const timeToX = new Map(candles.map((c, i) => [c.time, 25 + i * stepX + stepX / 2]));
             const drawCurve = (curvePoints, color) => {
                 if (!curvePoints || curvePoints.length === 0) return;
                 ctx.save();
@@ -946,7 +1021,7 @@ class CockpitChart {
                 let first = true;
                 curvePoints.forEach(pt => {
                     const x = timeToX.get(pt.time);
-                    if (x !== undefined && pt.value !== null && pt.value !== undefined) {
+                    if (x !== undefined && pt.value !== null && pt.value !== undefined && isFinite(pt.value)) {
                         const y = getY(pt.value);
                         if (first) {
                             ctx.moveTo(x, y);
@@ -960,13 +1035,17 @@ class CockpitChart {
                 ctx.restore();
             };
 
-            drawCurve(data.band_upper_curve, '#58a6ff');
-            drawCurve(data.band_lower_curve, '#f85149');
+            drawCurve(upperCurve, '#58a6ff');
+            drawCurve(lowerCurve, '#f85149');
         }
 
+        // Fallback Header & Meta text
         ctx.fillStyle = '#8b949e';
         ctx.font = '10px monospace';
-        ctx.fillText(`Max: ${maxP.toFixed(2)} | Min: ${minP.toFixed(2)} (${candles.length} bars)`, 10, 15);
+        const rangeText = validCandles.length > maxBarsToShow
+            ? `Showing last ${candles.length} of ${validCandles.length} bars [Canvas Fallback]`
+            : `${candles.length} bars [Canvas Fallback]`;
+        ctx.fillText(rangeText, 10, 15);
     }
 }
 

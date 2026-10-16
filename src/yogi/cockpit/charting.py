@@ -10,6 +10,8 @@ Adheres strictly to the verified YOGI band envelope mathematics:
 
 from collections import OrderedDict
 from dataclasses import dataclass
+from datetime import timedelta
+import logging
 import threading
 import time
 from typing import Optional, Sequence
@@ -65,7 +67,10 @@ from yogi.core.contracts.bands import IBandsRepository
 from yogi.core.contracts.market_data import MarketBar
 from yogi.core.contracts.provider import IDataProvider
 from yogi.core.contracts.timeframe import ITimeframeEngine
+from yogi.storage.cache import MarketBarsCache
 from yogi.timeframe.engine import TimeframeEngine
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -85,15 +90,42 @@ class ChartDataService:
         bands_repo: Optional[IBandsRepository] = None,
         max_entries: int = 100,
         ttl_seconds: Optional[float] = 300.0,
+        bars_cache: Optional[MarketBarsCache] = None,
     ) -> None:
         self.provider = provider
         self.timeframe_engine = timeframe_engine if timeframe_engine is not None else TimeframeEngine()
         self.bands_repo = bands_repo
         self.max_entries: int = max_entries
         self.ttl_seconds: Optional[float] = ttl_seconds
+        self.bars_cache = bars_cache
         self._provider_name: str = getattr(self.provider, "name", "")
         self._cache: OrderedDict[tuple[str, str, int], _ChartCacheEntry] = OrderedDict()
         self._cache_lock: threading.Lock = threading.Lock()
+
+    @staticmethod
+    def _slice_bars_for_years(bars: Sequence[MarketBar], years: int = 2) -> Sequence[MarketBar]:
+        """Slice chronological daily bars for the requested years range while preserving lookback."""
+        if not bars:
+            return ()
+        sorted_bars = tuple(sorted(bars, key=lambda b: b.timestamp))
+        try:
+            y = int(years)
+        except (ValueError, TypeError):
+            y = 2
+
+        if y <= 0 or y >= 10:
+            return sorted_bars
+
+        latest_dt = sorted_bars[-1].timestamp
+        cutoff_dt = latest_dt - timedelta(days=int(y * 365.25))
+        sliced = [b for b in sorted_bars if b.timestamp >= cutoff_dt]
+
+        # Preserve minimum lookback of 20 bars (or all available if < 20) for indicators
+        min_required = min(len(sorted_bars), 20)
+        if len(sliced) < min_required:
+            sliced = list(sorted_bars[-min_required:])
+
+        return tuple(sliced)
 
     def _get_cached(self, key: tuple[str, str, int]) -> Optional[Sequence[MarketBar]]:
         """Retrieve cached daily bars if present, valid, and not expired."""
@@ -144,6 +176,14 @@ class ChartDataService:
         with self._cache_lock:
             self._cache.clear()
 
+    def invalidate_symbol(self, symbol: str) -> None:
+        """Evict all cached entries for the specified symbol."""
+        sym_u = symbol.strip().upper()
+        with self._cache_lock:
+            keys_to_remove = [k for k in self._cache if k[0] == sym_u]
+            for k in keys_to_remove:
+                del self._cache[k]
+
     @property
     def cache_size(self) -> int:
         """Return the current number of valid entries in the cache."""
@@ -178,11 +218,34 @@ class ChartDataService:
                     f"Unsupported band timeframe '{band_timeframe}'. Supported timeframes: ('D', 'W', 'M', 'Q', 'H', 'Y') or 'NONE'/'OFF'."
                 )
 
-        # 1. Fetch raw daily bars from provider (or presentation cache)
+        # 1. Fetch raw daily bars from presentation cache, persistent cache, or provider
         cache_key = (sym, ex, years)
         daily_bars = self._get_cached(cache_key)
         if daily_bars is None:
-            daily_bars = self.provider.daily_history(symbol=sym, exchange=ex, years=years)
+            # 1a. Attempt to load canonical bars from persistent MarketBarsCache
+            if self.bars_cache is not None:
+                try:
+                    pv_name = getattr(self.provider, "name", "yfinance")
+                    found, _ = self.bars_cache.get_bars_for_symbols(
+                        symbols=[sym],
+                        exchange=ex,
+                        provider=pv_name,
+                        min_bars=3,
+                    )
+                    cached_raw = found.get(sym)
+                    if cached_raw:
+                        daily_bars = self._slice_bars_for_years(cached_raw, years=years)
+                except Exception as cache_err:
+                    logger.debug(
+                        "ChartDataService: persistent bar cache lookup failed for '%s': %s",
+                        sym,
+                        cache_err,
+                    )
+
+            # 1b. Fall back to configured provider if persistent cache had no usable data
+            if not daily_bars:
+                daily_bars = self.provider.daily_history(symbol=sym, exchange=ex, years=years)
+
             if daily_bars:
                 self._put_cached(cache_key, daily_bars)
 
