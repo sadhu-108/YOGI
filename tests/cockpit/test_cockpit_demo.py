@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+from pathlib import Path
 from typing import Any, Mapping, Optional
 import pytest
 
@@ -9,6 +10,7 @@ from yogi.cockpit.app import create_app
 from yogi.cockpit.demo import DemoBandsRepository
 from yogi.data.providers.demo import DemoDataProvider
 from yogi.cockpit.state import AppState
+from yogi.storage.cache import DatasetCache, MarketBarsCache
 
 
 class AsgiResponse:
@@ -260,12 +262,16 @@ def test_demo_provider_resolves_fixtures_from_arbitrary_cwd(monkeypatch, tmp_pat
     assert "MANYAVAR" in state.dataset
 
 
-def test_provider_switching_live_and_demo():
+def test_provider_switching_live_and_demo(tmp_path: Path):
     """Verify switching between demo and live providers through /api/dataset/refresh."""
     from tests.cockpit.test_cockpit_yfinance import MockYFinanceProvider
 
     mock_live = MockYFinanceProvider(symbols=["RELIANCE", "TCS", "INFY", "WIPRO", "HDFCBANK", "ICICIBANK"])
-    state = AppState()
+    cache_dir = tmp_path / "cache"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    dataset_cache = DatasetCache(cache_dir=cache_dir)
+    bars_cache = MarketBarsCache(cache_dir=cache_dir)
+    state = AppState(dataset_cache=dataset_cache, bars_cache=bars_cache)
     state.orchestrator.registry.providers._instances["yfinance"] = mock_live
     state.orchestrator.registry.providers._factories.pop("yfinance", None)
 
@@ -291,6 +297,10 @@ def test_provider_switching_live_and_demo():
     assert data["universe_count"] == 6
     assert data["is_demo"] is False
     assert data["provider"] == "yfinance"
+
+    # Verify writes were safely directed to isolated temporary cache, not production
+    assert (cache_dir / "dataset_NSE_yfinance.pkl").is_file()
+    assert (cache_dir / "bars_NSE_yfinance.pkl").is_file()
 
     # 4. Switching back to demo works flawlessly and restores the demo dataset
     res = client.post("/api/dataset/refresh", json={"provider": "demo"})

@@ -77,17 +77,25 @@ class MockYFinanceProvider(IDataProvider):
         return ProviderHealth(provider=self.name, ok=not self.should_fail, sample_price=2510.0)
 
 
+import tempfile
 from pathlib import Path
 from yogi.storage.bands import CsvBandsRepository
+from yogi.storage.cache import DatasetCache, MarketBarsCache
 
 
 def _make_mock_app_state(mock_p: MockYFinanceProvider, tmp_path: Optional[Path] = None) -> AppState:
-    bands_repo = CsvBandsRepository(data_dir=tmp_path) if tmp_path is not None else None
-    state = AppState(bands_repo=bands_repo)
-    if bands_repo is not None:
-        state.orchestrator.registry.bands._instances["csv"] = bands_repo
-        state.orchestrator.registry.bands._instances["excel"] = bands_repo
-        state._bands_repo = bands_repo
+    cache_dir = tmp_path if tmp_path is not None else Path(tempfile.mkdtemp(prefix="yogi_test_cache_"))
+    bands_repo = CsvBandsRepository(data_dir=cache_dir)
+    dataset_cache = DatasetCache(cache_dir=cache_dir)
+    bars_cache = MarketBarsCache(cache_dir=cache_dir)
+    state = AppState(
+        bands_repo=bands_repo,
+        dataset_cache=dataset_cache,
+        bars_cache=bars_cache,
+    )
+    state.orchestrator.registry.bands._instances["csv"] = bands_repo
+    state.orchestrator.registry.bands._instances["excel"] = bands_repo
+    state._bands_repo = bands_repo
     state.orchestrator.registry.providers._instances["yfinance"] = mock_p
     state.orchestrator.registry.providers._factories.pop("yfinance", None)
     return state
@@ -248,13 +256,170 @@ def test_cockpit_full_workflow_with_yfinance(tmp_path: Path):
     assert "RELIANCE" in res_json.text
 
 
+def test_rebuild_continues_when_individual_symbol_fails():
+    """Verify that an individual DataProviderError on one symbol does not abort the entire rebuild."""
+    class PartialFailingProvider(MockYFinanceProvider):
+        def daily_history(self, symbol: str, exchange: str = "NSE", years: int = 10) -> Sequence[MarketBar]:
+            if symbol == "BAD_STOCK":
+                raise DataProviderError(f"Simulated rate limit or network failure for {symbol}")
+            return self._bars
+
+        def batch_daily_history(self, symbols: Sequence[str], exchange: str = "NSE", years: int = 10) -> Mapping[str, Sequence[MarketBar]]:
+            # Simulate batch failure falling back to individual daily_history
+            raise DataProviderError("Batch download failed; trigger fallback")
+
+    mock_p = PartialFailingProvider(symbols=["GOOD1", "BAD_STOCK", "GOOD2"])
+    state = _make_mock_app_state(mock_p)
+
+    app = create_app(app_state=state, auto_refresh=False)
+    client = AsgiTestClient(app)
+
+    res = client.post(
+        "/api/dataset/refresh",
+        json={"provider": "yfinance", "symbols": ["GOOD1", "BAD_STOCK", "GOOD2"]},
+    )
+    assert res.status_code == 200
+    status = res.json()
+    assert status["universe_count"] == 2
+    assert status["is_demo"] is False
+
+    tbl = client.get("/api/table").json()
+    returned_symbols = {r["symbol"] for r in tbl["rows"]}
+    assert "GOOD1" in returned_symbols
+    assert "GOOD2" in returned_symbols
+    assert "BAD_STOCK" not in returned_symbols
+
+
+def test_rebuild_systemic_failure_preserves_demo():
+    """Verify that systemic failure across all symbols fails with HTTP 500 and preserves Demo state."""
+    mock_p = MockYFinanceProvider(symbols=["RELIANCE", "TCS"])
+    state = _make_mock_app_state(mock_p)
+
+    app = create_app(app_state=state, auto_refresh=False)
+    client = AsgiTestClient(app)
+
+    # 1. Establish Demo mode
+    res_demo = client.post("/api/dataset/refresh", json={"provider": "demo"})
+    assert res_demo.status_code == 200
+    assert state.is_demo is True
+    assert len(state.dataset) == 5
+
+    # 2. Inject provider that fails on ALL symbols
+    failing_p = MockYFinanceProvider(should_fail=True)
+    state.orchestrator.registry.providers._instances["yfinance"] = failing_p
+
+    res_fail = client.post(
+        "/api/dataset/refresh",
+        json={"provider": "yfinance", "symbols": ["BAD1", "BAD2"]},
+    )
+    assert res_fail.status_code == 500
+    assert "Failed to refresh dataset" in res_fail.json()["detail"]
+
+    # Invariant: Demo state must be strictly preserved!
+    assert state.is_demo is True
+    assert len(state.dataset) == 5
+    demo_symbols = {r["symbol"] for r in client.get("/api/table").json()["rows"]}
+    assert "MANYAVAR" in demo_symbols
+
+
+def test_rebuild_empty_dataset_preserves_demo():
+    """Verify that an empty dataset result does not swap into active state and preserves Demo."""
+    class EmptyProvider(MockYFinanceProvider):
+        def daily_history(self, symbol: str, exchange: str = "NSE", years: int = 10) -> Sequence[MarketBar]:
+            return ()
+
+        def batch_daily_history(self, symbols: Sequence[str], exchange: str = "NSE", years: int = 10) -> Mapping[str, Sequence[MarketBar]]:
+            return {s: () for s in symbols}
+
+    mock_p = MockYFinanceProvider()
+    state = _make_mock_app_state(mock_p)
+
+    app = create_app(app_state=state, auto_refresh=False)
+    client = AsgiTestClient(app)
+
+    # 1. Establish Demo mode
+    client.post("/api/dataset/refresh", json={"provider": "demo"})
+    assert state.is_demo is True
+
+    # 2. Inject Empty provider and attempt Live refresh with empty symbols
+    empty_p = EmptyProvider()
+    state.orchestrator.registry.providers._instances["yfinance"] = empty_p
+
+    res_empty = client.post(
+        "/api/dataset/refresh",
+        json={"provider": "yfinance", "symbols": []},
+    )
+    assert res_empty.status_code == 500
+    assert state.is_demo is True
+    assert len(state.dataset) == 5
+
+
+def test_yfinance_provider_with_multiindex_download():
+    """Verify real YFinanceDataProvider handles MultiIndex DataFrames from custom download_fn offline."""
+    import pandas as pd
+    from yogi.data.providers.yfinance import YFinanceDataProvider
+
+    dates = pd.date_range("2024-01-01", periods=3, freq="D")
+    cols = pd.MultiIndex.from_tuples([
+        ("Close", "INFY.NS"),
+        ("Open", "INFY.NS"),
+        ("High", "INFY.NS"),
+        ("Low", "INFY.NS"),
+        ("Volume", "INFY.NS"),
+    ])
+    mock_df = pd.DataFrame([
+        [1500.0, 1490.0, 1510.0, 1485.0, 10000.0],
+        [1520.0, 1505.0, 1525.0, 1500.0, 12000.0],
+        [1515.0, 1520.0, 1530.0, 1510.0, 8000.0],
+    ], index=dates, columns=cols)
+
+    def mock_download(**kwargs):
+        return mock_df
+
+    provider = YFinanceDataProvider(download_fn=mock_download, use_network=False)
+    bars = provider.daily_history("INFY", exchange="NSE", years=1)
+    assert len(bars) == 3
+    assert bars[0].close == 1500.0
+    assert bars[0].open == 1490.0
+    assert bars[0].volume == 10000.0
+    assert provider.last_price("INFY") == 1515.0
+
+
+
+def test_refresh_timing_logs_emitted(caplog):
+    """Verify that AppState.refresh and PipelineOrchestrator emit informative stage timing logs."""
+    import logging
+    mock_p = MockYFinanceProvider(symbols=["GOOD1", "GOOD2"])
+    state = _make_mock_app_state(mock_p)
+
+    app = create_app(app_state=state, auto_refresh=False)
+    client = AsgiTestClient(app)
+
+    with caplog.at_level(logging.INFO):
+        res = client.post(
+            "/api/dataset/refresh",
+            json={"provider": "yfinance", "symbols": ["GOOD1", "GOOD2"]},
+        )
+    assert res.status_code == 200
+    logs = caplog.text
+    assert "Stage 1/3 (Universe)" in logs
+    assert "Stage 2/3 (Market Bars)" in logs
+    assert "Stage 3/3 (Calculations)" in logs
+    assert "atomically swapped active dataset to 'yfinance'" in logs
+
+
 @pytest.mark.skipif(
     os.getenv("RUN_LIVE_TESTS") != "1",
     reason="Opt-in live YFinance test requires RUN_LIVE_TESTS=1 environment variable",
 )
-def test_live_yfinance_cockpit_e2e():
+def test_live_yfinance_cockpit_e2e(tmp_path: Path):
     """Opt-in real live network test verifying real Yahoo Finance download flowing into Cockpit."""
-    state = AppState()
+    cache_dir = tmp_path / "cache"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    state = AppState(
+        dataset_cache=DatasetCache(cache_dir=cache_dir),
+        bars_cache=MarketBarsCache(cache_dir=cache_dir),
+    )
     app = create_app(app_state=state, auto_refresh=False)
     client = AsgiTestClient(app)
 

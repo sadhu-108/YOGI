@@ -77,12 +77,19 @@ def test_app_state_initialization_and_read_only():
         state.dataset["STOCK_B"] = {}
 
 
-def test_app_state_atomic_refresh(monkeypatch):
+from yogi.storage.cache import DatasetCache, MarketBarsCache
+
+
+def test_app_state_atomic_refresh(monkeypatch, tmp_path):
     """Verify AppState dataset updates replace the reference atomically without in-place mutation."""
     sample_data = {
         "OLD": {"symbol": "OLD", "price": 50.0},
     }
-    state = AppState(initial_dataset=sample_data)
+    state = AppState(
+        initial_dataset=sample_data,
+        dataset_cache=DatasetCache(cache_dir=tmp_path),
+        bars_cache=MarketBarsCache(cache_dir=tmp_path),
+    )
 
     old_ref = state.dataset
     assert "OLD" in old_ref
@@ -173,12 +180,16 @@ def test_column_projecting_assembler_handles_unknown_or_custom_column():
     assert payload.rows[0]["UNKNOWN_FIELD"] is None
 
 
-def test_app_state_concurrent_readers_during_refresh(monkeypatch):
+def test_app_state_concurrent_readers_during_refresh(monkeypatch, tmp_path):
     """Verify concurrent reader coroutines always observe consistent snapshots during refresh."""
     import time
 
     initial = {"OLD": {"symbol": "OLD", "price": 50.0}}
-    state = AppState(initial_dataset=initial)
+    state = AppState(
+        initial_dataset=initial,
+        dataset_cache=DatasetCache(cache_dir=tmp_path),
+        bars_cache=MarketBarsCache(cache_dir=tmp_path),
+    )
 
     def slow_build(cfg):
         time.sleep(0.02)

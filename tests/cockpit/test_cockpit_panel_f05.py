@@ -246,12 +246,17 @@ def test_f05_clear_panel_cache_and_property_access():
 # 3. Demo / Live Isolation
 # =============================================================================
 
-def test_f05_demo_live_isolation_on_refresh():
+from yogi.storage.cache import DatasetCache, MarketBarsCache
+
+
+def test_f05_demo_live_isolation_on_refresh(tmp_path):
     """Verify Demo and Live modes cannot cross-contaminate and cache clears on refresh."""
     async def _test():
         state = AppState(
             config=EngineConfig(provider="demo", bands_repository="demo"),
             initial_dataset={},
+            dataset_cache=DatasetCache(cache_dir=tmp_path),
+            bars_cache=MarketBarsCache(cache_dir=tmp_path),
         )
         mock_live = ControllableMockProvider("yfinance")
         state.orchestrator.registry.providers.register("yfinance", mock_live)
