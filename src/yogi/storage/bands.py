@@ -25,6 +25,7 @@ from yogi.core.contracts.bands import (
     IBandBackupService,
     IBandsRepository,
 )
+from yogi.storage.paths import get_data_dir
 
 logger = logging.getLogger(__name__)
 
@@ -41,11 +42,11 @@ class CsvBandsRepository(IBandsRepository, IBandAuditRepository, IBandBackupServ
         data_dir: Optional[Path] = None,
         fixtures_dir: Optional[Path] = None,
     ) -> None:
-        self.data_dir = Path(data_dir) if data_dir is not None else Path("data")
+        self.data_dir = get_data_dir(data_dir)
         self.backup_dir = self.data_dir / "band_backups"
         self.bands_file = self.data_dir / "bands.csv"
         self.audit_file = self.data_dir / "band_changes.csv"
-        self._fixtures_dir = Path(fixtures_dir) if fixtures_dir is not None else None
+        self._fixtures_dir = Path(fixtures_dir).resolve() if fixtures_dir is not None else None
 
         self._lock = threading.RLock()
         self._bands: dict[str, dict[str, float]] = {}

@@ -18,6 +18,7 @@ from yogi.core.contracts.security import (
     ListingStatus,
     SecurityMetadata,
 )
+from yogi.storage.paths import get_data_dir
 
 logger = logging.getLogger(__name__)
 
@@ -42,11 +43,11 @@ class CsvMetadataRepository(ISecurityMetadataRepository):
 
     def __init__(
         self,
-        data_dir: Path,
+        data_dir: Optional[Path] = None,
         seed_meta_csv: Optional[Path] = None,
         seed_fno_csv: Optional[Path] = None,
     ) -> None:
-        self._dir = Path(data_dir)
+        self._dir = get_data_dir(data_dir)
         self._dir.mkdir(parents=True, exist_ok=True)
         self._meta_file = self._dir / "metadata.csv"
         self._fno_file = self._dir / "fno_list.csv"
