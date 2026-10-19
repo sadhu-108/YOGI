@@ -2,7 +2,8 @@
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Any, Callable, Mapping, Optional, Sequence
+from datetime import date, datetime
+from typing import Any, Callable, Mapping, Optional, Sequence, Union
 
 from yogi.core.contracts.market_data import MarketBar, TickData
 
@@ -52,6 +53,8 @@ class IDataProvider(ABC):
         symbol: str,
         exchange: str = "NSE",
         years: int = 10,
+        start_date: Optional[Union[datetime, date, str]] = None,
+        end_date: Optional[Union[datetime, date, str]] = None,
     ) -> Sequence[MarketBar]:
         """Return historical daily OHLCV bars for a single symbol."""
         pass
@@ -62,6 +65,8 @@ class IDataProvider(ABC):
         symbols: Sequence[str],
         exchange: str = "NSE",
         years: int = 10,
+        start_date: Optional[Union[datetime, date, str]] = None,
+        end_date: Optional[Union[datetime, date, str]] = None,
     ) -> Mapping[str, Sequence[MarketBar]]:
         """Batch fetch daily history for multiple symbols."""
         pass

@@ -6,6 +6,7 @@ from yogi.core.registry.base import (
     RegistrationNotFoundError,
     RegistryError,
 )
+from yogi.core.registry.bootstrap import create_default_registry_hub
 from yogi.core.registry.hub import RegistryHub
 
 __all__ = [
@@ -14,4 +15,5 @@ __all__ = [
     "RegistryError",
     "DuplicateRegistrationError",
     "RegistrationNotFoundError",
+    "create_default_registry_hub",
 ]

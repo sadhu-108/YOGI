@@ -8,6 +8,11 @@ from yogi.core.contracts.provider import IDataProvider
 from yogi.core.registry.base import CapabilityRegistry
 
 
+def create_default_registry_hub() -> "RegistryHub":
+    from yogi.core.registry.bootstrap import create_default_registry_hub as _create
+    return _create()
+
+
 class RegistryHub:
     """The explicit container of capability registries across YOGI's contracts.
 

@@ -5,7 +5,7 @@ Strictly separates screening intent (ScreeningQuery) from presentation column pr
 """
 
 from typing import Any, Mapping, Optional, Sequence, Union
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from yogi.core.configuration.query import ScreeningQuery
 from yogi.core.contracts.filter import FilterGroupSpec, FilterOperator, FilterRuleSpec
@@ -20,11 +20,153 @@ from yogi.core.contracts.selection import RankCutoffSpec
 
 class FilterRuleIn(BaseModel):
     """Specification for a single filtering condition."""
-    field: str
+    field: str = ""
     op: FilterOperator = FilterOperator.EQ
     value: Any = None
     field2: Optional[str] = None
     is_negated: bool = False
+    condition_type: Optional[str] = None
+    params: dict[str, Any] = Field(default_factory=dict)
+    timeframe: Optional[str] = None
+    p1: Optional[int] = None
+    p2: Optional[int] = None
+    state: Optional[str] = None
+    lookback: Optional[int] = None
+
+    @model_validator(mode="after")
+    def validate_ema_rule(self) -> "FilterRuleIn":
+        if self.condition_type == "ema":
+            tf_caps = {"D": 31, "W": 52, "M": 12, "Q": 4, "H": 2, "Y": 1}
+
+            # Reconcile / populate timeframe
+            param_tf = self.params.get("timeframe") if self.params else None
+            if self.timeframe is not None and param_tf is not None:
+                if str(self.timeframe).strip().upper() != str(param_tf).strip().upper():
+                    raise ValueError(
+                        f"Conflicting 'timeframe' parameter: legacy '{self.timeframe}' != params['timeframe'] '{param_tf}'"
+                    )
+            elif self.timeframe is None and param_tf is not None:
+                self.timeframe = param_tf
+
+            if not isinstance(self.timeframe, str):
+                raise ValueError(f"Invalid timeframe '{self.timeframe}'. Must be one of {tuple(tf_caps.keys())}")
+            tf = self.timeframe.strip().upper()
+            if tf not in tf_caps:
+                raise ValueError(f"Invalid timeframe '{self.timeframe}'. Must be one of {tuple(tf_caps.keys())}")
+            self.timeframe = tf
+
+            # Reconcile / populate p1 and p2
+            param_p1 = self.params.get("p1") if self.params else None
+            if self.p1 is not None and param_p1 is not None:
+                if self.p1 != param_p1:
+                    raise ValueError(f"Conflicting 'p1' parameter: legacy '{self.p1}' != params['p1'] '{param_p1}'")
+            elif self.p1 is None and param_p1 is not None:
+                self.p1 = param_p1
+
+            param_p2 = self.params.get("p2") if self.params else None
+            if self.p2 is not None and param_p2 is not None:
+                if self.p2 != param_p2:
+                    raise ValueError(f"Conflicting 'p2' parameter: legacy '{self.p2}' != params['p2'] '{param_p2}'")
+            elif self.p2 is None and param_p2 is not None:
+                self.p2 = param_p2
+
+            if self.p1 is None or self.p2 is None:
+                raise ValueError("Both p1 and p2 must be provided for EMA condition")
+            if (
+                isinstance(self.p1, bool)
+                or isinstance(self.p2, bool)
+                or not isinstance(self.p1, int)
+                or not isinstance(self.p2, int)
+                or self.p1 < 1
+                or self.p2 < 1
+            ):
+                raise ValueError("Both p1 and p2 must be positive integers >= 1")
+            max_p = tf_caps[tf]
+            if self.p1 > max_p or self.p2 > max_p:
+                raise ValueError(f"EMA periods for timeframe '{tf}' cannot exceed maximum {max_p} (got p1={self.p1}, p2={self.p2})")
+            if self.p1 == self.p2:
+                raise ValueError(f"P1 and P2 must be distinct positive integers (got p1={self.p1}, p2={self.p2})")
+
+            # Reconcile / populate state
+            param_st = None
+            if self.params:
+                param_st = self.params.get("state") if "state" in self.params else self.params.get("value")
+
+            raw_legacy_st = self.state if self.state is not None else self.value
+            if raw_legacy_st is not None and param_st is not None:
+                if str(raw_legacy_st).strip().upper() != str(param_st).strip().upper():
+                    raise ValueError(
+                        f"Conflicting 'state' parameter: legacy '{raw_legacy_st}' != params['state'] '{param_st}'"
+                    )
+            elif self.state is None and param_st is not None:
+                self.state = param_st
+
+            valid_states = ("UP", "DOWN", "UPCUT", "DOWNCUT")
+            st_val = self.state if self.state is not None else self.value
+            if not isinstance(st_val, str):
+                raise ValueError(f"Invalid EMA state '{self.state}'. Must be one of {valid_states}")
+            st = st_val.strip().upper()
+            if st not in valid_states:
+                raise ValueError(f"Invalid EMA state '{self.state}'. Must be one of {valid_states}")
+            self.state = st
+
+            # Reconcile / populate lookback
+            param_lb = self.params.get("lookback") if self.params else None
+            if self.lookback is not None and param_lb is not None:
+                if self.lookback != param_lb:
+                    raise ValueError(
+                        f"Conflicting 'lookback' parameter: legacy '{self.lookback}' != params['lookback'] '{param_lb}'"
+                    )
+            elif self.lookback is None and param_lb is not None:
+                self.lookback = param_lb
+
+            if self.lookback is not None:
+                if isinstance(self.lookback, bool) or not isinstance(self.lookback, int) or self.lookback < 1:
+                    raise ValueError("lookback must be a positive integer >= 1")
+
+            if not self.field:
+                self.field = f"EMA_{tf}_{self.p1}_{self.p2}"
+            if self.value is None:
+                self.value = st
+
+            # Synchronize normalized values into params dict
+            self.params["timeframe"] = tf
+            self.params["p1"] = self.p1
+            self.params["p2"] = self.p2
+            self.params["state"] = st
+            if self.lookback is not None:
+                self.params["lookback"] = self.lookback
+
+        return self
+
+    def to_core_spec(self) -> FilterRuleSpec:
+        """Convert this FilterRuleIn DTO to the frozen Core FilterRuleSpec."""
+        p_dict = dict(self.params) if self.params else {}
+        if self.timeframe is not None and "timeframe" not in p_dict:
+            p_dict["timeframe"] = self.timeframe
+        if self.p1 is not None and "p1" not in p_dict:
+            p_dict["p1"] = self.p1
+        if self.p2 is not None and "p2" not in p_dict:
+            p_dict["p2"] = self.p2
+        if self.state is not None and "state" not in p_dict:
+            p_dict["state"] = self.state
+        if self.lookback is not None and "lookback" not in p_dict:
+            p_dict["lookback"] = self.lookback
+
+        return FilterRuleSpec(
+            field=self.field,
+            op=self.op,
+            value=self.value,
+            field2=self.field2,
+            is_negated=self.is_negated,
+            condition_type=self.condition_type,
+            params=p_dict,
+            timeframe=self.timeframe,
+            p1=self.p1,
+            p2=self.p2,
+            state=self.state,
+            lookback=self.lookback,
+        )
 
 
 class FilterGroupIn(BaseModel):
@@ -50,6 +192,8 @@ class ScreenRequestIn(BaseModel):
     Contains screening specification (mapped to ScreeningQuery) AND presentation
     column projection (passed strictly to ResultAssembler).
     """
+    request_id: Optional[str] = None
+
     # Screening intent -> mapped to ScreeningQuery
     filter_group: Optional[FilterGroupIn] = None
     ranking_metric: Optional[str] = None
@@ -85,6 +229,8 @@ class RefreshRequestIn(BaseModel):
     symbols: Optional[Sequence[str]] = None
     symbol_limit: Optional[int] = Field(default=None, gt=0)
     provider: Optional[str] = None
+    background: Optional[bool] = None
+    force_refresh_bars: bool = False
 
 
 # -----------------------------------------------------------------------------
@@ -139,6 +285,24 @@ class QueryResultOut(BaseModel):
             rows=payload.rows,
             metadata=payload.metadata,
         )
+
+
+class ScreenProgressOut(BaseModel):
+    """Real-time progress reporting for an active or completed screening operation."""
+    request_id: str
+    status: str = Field(description="Task status: idle, running, cancelling, cancelled, completed, failed")
+    progress: float = Field(ge=0.0, le=100.0, description="Percentage completion from 0.0 to 100.0")
+    stage: str = Field(description="Current execution stage identifier")
+    message: str = Field(description="Human-readable progress description")
+    processed_count: int = Field(default=0, ge=0)
+    total_count: int = Field(default=0, ge=0)
+
+
+class ScreenCancelOut(BaseModel):
+    """Response payload for screening cancellation request."""
+    request_id: str
+    status: str = Field(description="Cancellation status: cancelling, cancelled, completed, not_found")
+    message: str = Field(description="Status description")
 
 
 class StrategySummaryOut(BaseModel):
@@ -446,6 +610,22 @@ class SystemStatusOut(BaseModel):
     exchange: str = "NSE"
     provider: str = "yfinance"
     is_demo: bool = False
+    half_year_policy: str = "prototype"
+    is_cached: bool = False
+    build_status: Optional[str] = None
+    progress: Optional[float] = None
+    progress_stage: Optional[str] = None
+    error: Optional[str] = None
+
+
+class SystemSettingsOut(BaseModel):
+    """System-wide configuration settings."""
+    half_year_policy: str = "prototype"
+
+
+class SystemSettingsUpdateIn(BaseModel):
+    """System-wide configuration settings update request."""
+    half_year_policy: str
 
 
 # -----------------------------------------------------------------------------
@@ -463,30 +643,14 @@ def to_core_filter_group(group_in: Optional[FilterGroupIn]) -> Optional[FilterGr
             if nested is not None:
                 core_rules.append(nested)
         elif isinstance(r, FilterRuleIn):
-            core_rules.append(
-                FilterRuleSpec(
-                    field=r.field,
-                    op=r.op,
-                    value=r.value,
-                    field2=r.field2,
-                    is_negated=r.is_negated,
-                )
-            )
+            core_rules.append(r.to_core_spec())
         elif isinstance(r, dict):
             if "rules" in r:
                 nested = to_core_filter_group(FilterGroupIn(**r))
                 if nested is not None:
                     core_rules.append(nested)
             else:
-                core_rules.append(
-                    FilterRuleSpec(
-                        field=r.get("field", ""),
-                        op=FilterOperator(r.get("op", "==")),
-                        value=r.get("value"),
-                        field2=r.get("field2"),
-                        is_negated=bool(r.get("is_negated", False)),
-                    )
-                )
+                core_rules.append(FilterRuleIn(**r).to_core_spec())
     return FilterGroupSpec(
         match=group_in.match,
         rules=core_rules,
@@ -512,6 +676,13 @@ def from_core_filter_group(group_spec: Optional[FilterGroupSpec]) -> Optional[Fi
                     value=r.value,
                     field2=r.field2,
                     is_negated=r.is_negated,
+                    condition_type=r.condition_type,
+                    params=dict(r.params) if r.params else {},
+                    timeframe=r.timeframe,
+                    p1=r.p1,
+                    p2=r.p2,
+                    state=r.state,
+                    lookback=r.lookback,
                 )
             )
     return FilterGroupIn(

@@ -93,11 +93,10 @@ def _make_mock_app_state(mock_p: MockYFinanceProvider, tmp_path: Optional[Path] 
         dataset_cache=dataset_cache,
         bars_cache=bars_cache,
     )
-    state.orchestrator.registry.bands._instances["csv"] = bands_repo
-    state.orchestrator.registry.bands._instances["excel"] = bands_repo
+    state.orchestrator.registry.bands.override("csv", bands_repo)
+    state.orchestrator.registry.bands.override("excel", bands_repo)
     state._bands_repo = bands_repo
-    state.orchestrator.registry.providers._instances["yfinance"] = mock_p
-    state.orchestrator.registry.providers._factories.pop("yfinance", None)
+    state.orchestrator.registry.providers.override("yfinance", mock_p)
     return state
 
 
@@ -162,7 +161,7 @@ def test_demo_and_yfinance_isolation_and_no_silent_fallback():
 
     # 3. Simulate YFinance failure: must raise error, MUST NOT silently fall back to demo data
     mock_failing = MockYFinanceProvider(should_fail=True)
-    state.orchestrator.registry.providers._instances["yfinance"] = mock_failing
+    state.orchestrator.registry.providers.override("yfinance", mock_failing)
     res = client.post("/api/dataset/refresh", json={"provider": "yfinance", "symbols": ["RELIANCE"]})
     assert res.status_code == 500
     assert "detail" in res.json()
@@ -306,7 +305,7 @@ def test_rebuild_systemic_failure_preserves_demo():
 
     # 2. Inject provider that fails on ALL symbols
     failing_p = MockYFinanceProvider(should_fail=True)
-    state.orchestrator.registry.providers._instances["yfinance"] = failing_p
+    state.orchestrator.registry.providers.override("yfinance", failing_p)
 
     res_fail = client.post(
         "/api/dataset/refresh",
@@ -343,7 +342,7 @@ def test_rebuild_empty_dataset_preserves_demo():
 
     # 2. Inject Empty provider and attempt Live refresh with empty symbols
     empty_p = EmptyProvider()
-    state.orchestrator.registry.providers._instances["yfinance"] = empty_p
+    state.orchestrator.registry.providers.override("yfinance", empty_p)
 
     res_empty = client.post(
         "/api/dataset/refresh",

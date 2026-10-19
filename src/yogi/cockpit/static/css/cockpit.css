@@ -109,10 +109,24 @@ body {
     box-shadow: 0 0 6px rgba(63, 185, 80, 0.6);
 }
 
-.status-indicator.busy {
+.status-indicator.busy,
+.status-indicator.building {
     background-color: var(--accent-yellow-bright);
     box-shadow: 0 0 6px rgba(227, 179, 65, 0.6);
+    animation: pulse-glow 1.5s infinite;
 }
+
+.status-indicator.error {
+    background-color: var(--accent-red-bright, #f85149);
+    box-shadow: 0 0 6px rgba(248, 81, 73, 0.6);
+}
+
+@keyframes pulse-glow {
+    0% { opacity: 0.6; transform: scale(0.95); }
+    50% { opacity: 1; transform: scale(1.1); }
+    100% { opacity: 0.6; transform: scale(0.95); }
+}
+
 
 .divider {
     color: var(--border-color);
@@ -216,6 +230,13 @@ body {
     color: var(--accent-green-bright);
     border: 1px solid rgba(35, 134, 54, 0.3);
 }
+
+.badge-warning {
+    background-color: rgba(210, 153, 34, 0.2);
+    color: var(--accent-yellow-bright, #e3b341);
+    border: 1px solid rgba(210, 153, 34, 0.5);
+}
+
 
 .badge-counter {
     background-color: var(--border-color);
@@ -506,6 +527,557 @@ body {
     border-color: var(--accent-green-bright);
     color: #ffffff;
     box-shadow: 0 0 6px rgba(35, 134, 54, 0.4);
+}
+
+/* EMA Condition Builder (Pixel-matched to reference layout) */
+.ema-builder-panel {
+    background: transparent;
+    border: none;
+    border-radius: 0;
+    padding: 0;
+    box-shadow: none;
+    margin-bottom: 18px;
+}
+
+.ema-builder-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0 0 16px 0;
+    margin-bottom: 16px;
+    border-bottom: 1px solid var(--border-light);
+    gap: 12px;
+}
+
+.ema-builder-heading-group {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.ema-builder-title {
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--text-primary);
+    margin: 0;
+    letter-spacing: -0.2px;
+}
+
+.ema-builder-subtitle {
+    font-size: 13px;
+    color: var(--text-secondary);
+    margin: 0;
+}
+
+.ema-builder-match-wrap {
+    display: none; /* Shown dynamically via JS when cards.length > 1 */
+    align-items: center;
+    gap: 6px;
+    background-color: var(--bg-dark);
+    padding: 4px 8px;
+    border-radius: 6px;
+    border: 1px solid var(--border-color);
+    flex-shrink: 0;
+}
+
+.ema-match-label {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    white-space: nowrap;
+}
+
+.ema-match-select {
+    background-color: var(--input-bg);
+    color: var(--text-primary);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 2px 6px;
+    height: 26px;
+    cursor: pointer;
+}
+
+.ema-conditions-container {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+/* Individual EMA Condition Card (Seamless single-card or framed multi-card) */
+.ema-condition-card {
+    background-color: transparent;
+    border: none;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    box-shadow: none;
+}
+
+.ema-condition-card .ema-card-header {
+    display: none; /* Hidden by default in single-card mode */
+}
+
+/* Multi-Card Mode */
+.ema-condition-card.multi-card {
+    background-color: #12161c;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 16px;
+    box-shadow: 0 3px 12px rgba(0, 0, 0, 0.3);
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.ema-condition-card.multi-card:hover {
+    border-color: #484f58;
+}
+
+.ema-condition-card.multi-card .ema-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding-bottom: 12px;
+    margin-bottom: 16px;
+    border-bottom: 1px solid rgba(48, 54, 61, 0.5);
+}
+
+.ema-card-header-left {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.ema-card-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 3px 10px;
+    background-color: rgba(56, 139, 253, 0.12);
+    color: var(--accent-blue-light);
+    border: 1px solid rgba(56, 139, 253, 0.35);
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+}
+
+.ema-card-summary-chip {
+    display: none;
+    font-family: var(--font-mono, monospace);
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--accent-green-bright);
+    background: rgba(35, 134, 54, 0.12);
+    border: 1px solid rgba(46, 160, 67, 0.3);
+    padding: 2px 8px;
+    border-radius: 4px;
+}
+
+.ema-card-summary-chip.is-bearish {
+    color: var(--accent-red-bright);
+    background: rgba(218, 54, 51, 0.12);
+    border-color: rgba(248, 81, 73, 0.3);
+}
+
+.ema-card-summary-chip.is-invalid {
+    color: var(--accent-yellow-bright);
+    background: rgba(210, 153, 34, 0.12);
+    border-color: rgba(210, 153, 34, 0.3);
+}
+
+.ema-card-header-right {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.btn-toggle-ema-card {
+    background: transparent;
+    border: 1px solid rgba(48, 54, 61, 0.7);
+    color: var(--text-secondary);
+    font-size: 11px;
+    font-weight: 600;
+    padding: 3px 8px;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.btn-toggle-ema-card:hover {
+    color: var(--accent-blue-light);
+    border-color: var(--accent-blue);
+    background-color: rgba(56, 139, 253, 0.08);
+}
+
+.btn-remove-ema-card {
+    background: transparent;
+    border: 1px solid transparent;
+    color: var(--text-muted);
+    font-size: 12px;
+    font-weight: 600;
+    padding: 3px 8px;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.btn-remove-ema-card:hover {
+    color: var(--accent-red-bright);
+    background-color: rgba(248, 81, 73, 0.1);
+    border-color: rgba(248, 81, 73, 0.3);
+}
+
+/* Collapsed Multi-Card */
+.ema-condition-card.multi-card.is-collapsed {
+    padding: 10px 14px;
+    cursor: pointer;
+}
+
+.ema-condition-card.multi-card.is-collapsed .ema-card-header {
+    padding-bottom: 0;
+    margin-bottom: 0;
+    border-bottom: none;
+}
+
+.ema-condition-card.multi-card.is-collapsed .ema-card-body {
+    display: none;
+}
+
+.ema-condition-card.multi-card.is-collapsed .ema-card-summary-chip {
+    display: inline-flex;
+}
+
+/* Numbered Step Sections & Subtle Dividers */
+.ema-step-section {
+    padding-bottom: 24px;
+    margin-bottom: 28px;
+    border-bottom: 1px solid var(--border-light);
+    display: flex;
+    flex-direction: column;
+}
+
+.ema-step-section.section-state {
+    border-bottom: none;
+    margin-bottom: 0;
+    padding-bottom: 0;
+}
+
+.ema-step-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 10px;
+    letter-spacing: 0.1px;
+}
+
+/* Section 1 — Timeframe Segmented Buttons */
+.ema-tf-segmented-grid {
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    gap: 8px;
+    width: 100%;
+}
+
+.ema-tf-btn {
+    height: 50px;
+    min-height: 50px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background-color: var(--bg-dark);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    color: var(--text-primary);
+    font-size: 14px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.ema-tf-btn:hover {
+    background-color: var(--hover-bg);
+    border-color: #484f58;
+}
+
+.ema-tf-btn.active {
+    background-color: #1e2633;
+    border: 1.5px solid #388bfd;
+    color: #ffffff;
+}
+
+.ema-tf-limit-notice {
+    margin-top: 8px;
+    font-size: 12px;
+    color: var(--text-secondary);
+    line-height: 1.4;
+}
+
+.ema-tf-limit-notice.warning {
+    color: var(--accent-yellow-bright);
+    background-color: rgba(210, 153, 34, 0.12);
+    border: 1px solid rgba(210, 153, 34, 0.35);
+    padding: 6px 10px;
+    border-radius: 5px;
+}
+
+/* Section 2 — Choose EMA Combination */
+.ema-comb-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+}
+
+.ema-comb-field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.ema-comb-label {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-secondary);
+    letter-spacing: 0.1px;
+}
+
+.ema-select-large {
+    height: 42px;
+    min-height: 42px;
+    background-color: var(--bg-dark);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    color: var(--text-primary);
+    font-size: 15px;
+    font-weight: 600;
+    padding: 0 34px 0 14px;
+    cursor: pointer;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+    width: 100%;
+    appearance: none;
+    -webkit-appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8' fill='none'%3E%3Cpath d='M1 1.5L6 6.5L11 1.5' stroke='%238b949e' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 14px center;
+}
+
+.ema-select-large option {
+    font-size: 14.5px;
+    background-color: var(--card-bg, #161b22);
+    color: var(--text-primary);
+    padding: 4px 8px;
+}
+
+.ema-select-large:focus {
+    outline: none;
+    border-color: #388bfd;
+    box-shadow: 0 0 0 2px rgba(56, 139, 253, 0.25);
+}
+
+.ema-select-large.is-invalid {
+    border-color: var(--accent-red-bright) !important;
+}
+
+.ema-comb-helper-text {
+    margin-top: 8px;
+    font-size: 12px;
+    color: var(--text-secondary);
+    line-height: 1.4;
+}
+
+.ema-comb-error-notice {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 6px;
+    font-size: 12px;
+    color: var(--accent-red-bright);
+    background-color: rgba(248, 81, 73, 0.12);
+    border: 1px solid rgba(248, 81, 73, 0.35);
+    padding: 6px 10px;
+    border-radius: 5px;
+}
+
+/* Section 3 — Select Desired State */
+.ema-state-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+}
+
+.ema-state-btn {
+    height: 40px;
+    min-height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 12px;
+    background-color: var(--bg-dark);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    cursor: pointer;
+    text-align: center;
+    font-size: 14px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    transition: all 0.15s ease;
+}
+
+/* Green States: UP & UPCUT */
+.ema-state-btn.state-up,
+.ema-state-btn.state-upcut {
+    color: var(--accent-green-bright);
+}
+
+.ema-state-btn.state-up:hover,
+.ema-state-btn.state-upcut:hover {
+    background-color: rgba(35, 134, 54, 0.08);
+    border-color: rgba(46, 160, 67, 0.6);
+}
+
+.ema-state-btn.state-up.active,
+.ema-state-btn.state-upcut.active {
+    background-color: rgba(35, 134, 54, 0.15);
+    border: 1.5px solid var(--accent-green-bright);
+    color: var(--accent-green-bright);
+}
+
+/* Red States: DOWN & DOWNCUT */
+.ema-state-btn.state-down,
+.ema-state-btn.state-downcut {
+    color: var(--accent-red-bright);
+}
+
+.ema-state-btn.state-down:hover,
+.ema-state-btn.state-downcut:hover {
+    background-color: rgba(218, 54, 51, 0.08);
+    border-color: rgba(248, 81, 73, 0.6);
+}
+
+.ema-state-btn.state-down.active,
+.ema-state-btn.state-downcut.active {
+    background-color: rgba(218, 54, 51, 0.15);
+    border: 1.5px solid var(--accent-red-bright);
+    color: var(--accent-red-bright);
+}
+
+/* Condition Preview Card */
+.ema-preview-panel {
+    background-color: #161b22;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-top: 18px;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
+}
+
+.ema-preview-badge {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+}
+
+.ema-preview-summary {
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--text-primary);
+    letter-spacing: 0.2px;
+}
+
+.ema-preview-summary.is-invalid {
+    color: var(--accent-yellow-bright);
+}
+
+.ema-preview-explanation {
+    font-size: 13px;
+    font-weight: 500;
+    line-height: 1.4;
+    color: var(--accent-green-bright);
+}
+
+.ema-preview-explanation.is-bearish {
+    color: var(--accent-red-bright);
+}
+
+.ema-preview-explanation.is-invalid {
+    color: var(--accent-yellow-bright);
+}
+
+.ema-preview-footer {
+    font-size: 12px;
+    color: var(--text-secondary);
+    margin-top: 2px;
+}
+
+/* Footer Add Condition Button */
+.ema-builder-footer {
+    display: flex;
+    justify-content: flex-start;
+    margin-top: 14px;
+}
+
+.btn-add-ema {
+    height: 38px;
+    padding: 0 16px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--accent-blue-light);
+    border: 1px dashed var(--border-color);
+    border-radius: 6px;
+    background-color: rgba(56, 139, 253, 0.05);
+    cursor: pointer;
+    transition: all 0.15s ease;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.btn-add-ema:hover {
+    border-color: #388bfd;
+    background-color: rgba(56, 139, 253, 0.12);
+    color: #79c0ff;
+}
+
+/* Empty State */
+.ema-empty-state {
+    padding: 24px;
+    text-align: center;
+    color: var(--text-muted);
+    border: 1px dashed var(--border-color);
+    border-radius: 6px;
+    background-color: var(--bg-dark);
+}
+
+/* Responsive Queries */
+@media (max-width: 600px) {
+    .ema-comb-grid {
+        grid-template-columns: 1fr;
+        gap: 12px;
+    }
+    .ema-state-grid {
+        grid-template-columns: 1fr;
+        gap: 8px;
+    }
+    .ema-tf-segmented-grid {
+        gap: 4px;
+    }
+    .ema-tf-btn {
+        height: 36px;
+        font-size: 12px;
+    }
+    .ema-builder-header {
+        flex-direction: column;
+        align-items: stretch;
+    }
 }
 
 .band-quick-buttons {
@@ -841,6 +1413,47 @@ body {
     display: flex;
     flex-direction: column;
     gap: 8px;
+}
+
+.screening-action-row {
+    display: flex;
+    gap: 8px;
+    align-items: stretch;
+    width: 100%;
+}
+
+.screening-action-row #runScreenBtn {
+    flex: 1;
+    min-width: 0;
+    margin: 0;
+}
+
+.btn-cancel-screening {
+    background-color: rgba(248, 81, 73, 0.15);
+    border: 1px solid rgba(248, 81, 73, 0.4);
+    color: #f85149;
+    font-weight: 600;
+    font-size: 13px;
+    padding: 0 16px;
+    border-radius: 6px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    white-space: nowrap;
+}
+
+.btn-cancel-screening:hover:not(:disabled) {
+    background-color: rgba(248, 81, 73, 0.25);
+    border-color: #f85149;
+    color: #ff7b72;
+}
+
+.btn-cancel-screening:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
 }
 
 .export-btn-group {
@@ -1586,6 +2199,12 @@ body.drawer-open .data-table td {
     font-size: 12px;
 }
 
+.table-screening-in-progress {
+    opacity: 0.65;
+    transition: opacity 0.2s ease-in-out;
+    pointer-events: none;
+}
+
 .data-table thead th {
     background-color: var(--card-bg);
     color: var(--text-secondary);
@@ -2083,16 +2702,17 @@ body.drawer-open .data-table td {
 .matrix-band-edit-wrap {
     display: inline-flex;
     align-items: center;
-    gap: 2px;
+    justify-content: center;
+    width: 100%;
 }
 
 .matrix-band-input {
-    width: 44px;
+    width: 48px;
     padding: 1px 3px;
     font-size: 10px;
     font-family: monospace;
     font-weight: 700;
-    text-align: right;
+    text-align: center;
     background-color: var(--bg-dark);
     color: var(--text-primary);
     border: 1px solid var(--border-color);
@@ -2105,26 +2725,14 @@ body.drawer-open .data-table td {
     box-shadow: 0 0 0 1px var(--accent-blue);
 }
 
+.matrix-band-input:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
 .matrix-unit {
     font-size: 9px;
     color: var(--text-muted);
-}
-
-.btn-matrix-save {
-    padding: 0 4px;
-    font-size: 10px;
-    height: 18px;
-    line-height: 16px;
-    background-color: rgba(35, 134, 54, 0.2);
-    color: var(--accent-green-bright);
-    border: 1px solid rgba(63, 185, 80, 0.3);
-    border-radius: 2px;
-    cursor: pointer;
-}
-
-.btn-matrix-save:hover {
-    background-color: rgba(35, 134, 54, 0.4);
-    border-color: var(--accent-green-bright);
 }
 
 /* 5. Metadata Inline Edit Panel in Drawer Header */
@@ -2503,3 +3111,31 @@ body.drawer-open .data-table td {
 .global-audit-table tr:hover {
     background-color: var(--table-row-hover);
 }
+
+/* Half-Year (H) Policy Radio Setting */
+.radio-group-horizontal {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    background-color: var(--bg-dark, #12161c);
+    padding: 6px 10px;
+    border-radius: 4px;
+    border: 1px solid var(--border-color, #2d3748);
+}
+
+.radio-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 11px;
+    color: var(--text-primary, #e2e8f0);
+    cursor: pointer;
+    user-select: none;
+}
+
+.radio-label input[type="radio"] {
+    cursor: pointer;
+    accent-color: var(--accent-blue, #49b6a8);
+    margin: 0;
+}
+

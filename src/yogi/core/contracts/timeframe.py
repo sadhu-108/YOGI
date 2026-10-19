@@ -31,6 +31,7 @@ class ITimeframeEngine(ABC):
         daily_bars: Sequence[MarketBar],
         timeframes: Optional[Sequence[Union[str, Timeframe]]] = None,
         as_of: Optional[datetime] = None,
+        half_year_policy: Optional[str] = None,
     ) -> MarketContext:
         """Construct an immutable MarketContext across requested timeframes."""
         pass

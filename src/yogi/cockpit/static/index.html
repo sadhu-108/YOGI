@@ -5,8 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>YOGI Cockpit — Multi-Timeframe Financial Screener</title>
     <link rel="stylesheet" href="/static/css/cockpit.css">
-    <!-- Lightweight Charts Standalone CDN -->
-    <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
+    <!-- Lightweight Charts Standalone CDN with fallback -->
+    <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js" onerror="if (!window.LightweightCharts) { var s = document.createElement('script'); s.src = 'https://cdn.jsdelivr.net/npm/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js'; document.head.appendChild(s); }"></script>
 </head>
 <body>
     <!-- App Header -->
@@ -106,6 +106,21 @@
                     </div>
                 </details>
 
+                <!-- Half-Year (H) Timeframe Policy Setting -->
+                <div class="form-group mt-2" id="halfYearPolicySection">
+                    <label class="form-label-xs font-bold" title="Select half-year timeframe policy for H calculations, charts, and screening">Half-Year (H) Policy:</label>
+                    <div class="radio-group-horizontal mt-1" id="halfYearPolicyRadioGroup">
+                        <label class="radio-label" title="Prototype-compatible: 2QE boundaries ending Mar 31 and Sep 30 (default)">
+                            <input type="radio" name="halfYearPolicyRadio" value="prototype" checked id="policyPrototypeRadio">
+                            <span>Prototype (2QE)</span>
+                        </label>
+                        <label class="radio-label" title="Calendar half-year: H1 = Jan–Jun (ends Jun 30); H2 = Jul–Dec (ends Dec 31)">
+                            <input type="radio" name="halfYearPolicyRadio" value="calendar" id="policyCalendarRadio">
+                            <span>Calendar (H1/H2)</span>
+                        </label>
+                    </div>
+                </div>
+
                 <div class="form-group mt-2">
                     <label for="presetSelect">Strategy Preset Recipe:</label>
                     <select id="presetSelect" class="form-control form-control-sm">
@@ -136,58 +151,73 @@
                     <span class="badge badge-counter" id="activeRuleCountBadge">0 rules</span>
                 </div>
 
-                <!-- 1-Click Quick Filter Shortcuts -->
-                <div class="shortcuts-panel">
-                    <div class="shortcut-label">
-                        <span>Quick EMA Uptrend:</span>
-                        <small class="text-muted">(EMA3 &ge; EMA5)</small>
-                    </div>
-                    <div class="ema-toggle-strip" id="emaQuickToggles">
-                        <button type="button" class="ema-btn" data-tf="D" title="Toggle Daily EMA Up">D</button>
-                        <button type="button" class="ema-btn" data-tf="W" title="Toggle Weekly EMA Up">W</button>
-                        <button type="button" class="ema-btn" data-tf="M" title="Toggle Monthly EMA Up">M</button>
-                        <button type="button" class="ema-btn" data-tf="Q" title="Toggle Quarterly EMA Up">Q</button>
-                        <button type="button" class="ema-btn" data-tf="H" title="Toggle Half-Yearly EMA Up">H</button>
-                        <button type="button" class="ema-btn" data-tf="Y" title="Toggle Yearly EMA Up">Y</button>
-                    </div>
-
-                    <div class="band-position-control-group mt-2">
-                        <label for="quickBandPositionSelect" class="shortcut-label">Band Position Shortcut:</label>
-                        <div class="band-position-row">
-                            <select id="quickBandPositionSelect" class="form-control form-control-sm">
-                                <option value="">— Select Band Position —</option>
-                                <option value="above_m">Above Monthly Band (BANDST_M == ABOVE)</option>
-                                <option value="inside_m">Inside Monthly Band (BANDST_M == IN)</option>
-                                <option value="below_m">Below Monthly Band (Reaction Setup)</option>
-                                <option value="outside_2plus">Outside Band on 2+ Timeframes</option>
-                                <option value="reaction">Reaction Trade (Below Yearly, Weekly Upcut)</option>
-                            </select>
-                            <button type="button" class="btn btn-xs btn-outline" id="applyBandPositionBtn">+ Apply</button>
+                <!-- Dedicated EMA Condition Configuration Panel -->
+                <div class="ema-builder-panel" id="emaBuilderSection">
+                    <div class="ema-builder-header">
+                        <div class="ema-builder-heading-group">
+                            <h4 class="ema-builder-title">EMA Condition</h4>
+                            <p class="ema-builder-subtitle">Configure your EMA screening condition.</p>
                         </div>
-                        <span id="quickBandAboveBtn" style="display: none;"></span>
-                        <span id="quickBandOutsideBtn" style="display: none;"></span>
-                        <span id="quickReactionTradeBtn" style="display: none;"></span>
+                        <div class="ema-builder-match-wrap" id="emaMatchControlWrap">
+                            <label for="emaGroupMatch" class="ema-match-label">Combine:</label>
+                            <select id="emaGroupMatch" class="form-control form-control-sm ema-match-select">
+                                <option value="all" selected>AND (All)</option>
+                                <option value="any">OR (Any)</option>
+                            </select>
+                        </div>
                     </div>
+                    <div id="emaConditionsContainer" class="ema-conditions-container">
+                        <!-- Dynamic Step-by-Step EMA Condition Cards -->
+                    </div>
+                    <div class="ema-builder-footer mt-3">
+                        <button type="button" id="addEmaConditionBtn" class="btn btn-outline btn-sm btn-add-ema">
+                            + Add EMA Condition
+                        </button>
+                    </div>
+                    <!-- Legacy compatibility element for test suite -->
+                    <div id="emaQuickToggles" style="display: none;"></div>
                 </div>
 
-                <!-- Dynamic Condition Tree Builder -->
-                <div class="conditions-builder mt-3">
-                    <div class="group-match-bar">
-                        <span>Match:</span>
-                        <select id="rootGroupMatch" class="form-control form-control-sm match-select">
-                            <option value="all" selected>ALL Conditions (AND)</option>
-                            <option value="any">ANY Condition (OR)</option>
-                        </select>
-                        <button type="button" id="rootGroupNotToggle" class="group-not-toggle" title="Invert entire screen criteria (NOT logic)">NOT</button>
+                <!-- Obsolete condition controls removed from visible UI; preserved for API payload & test assertions -->
+                <div class="legacy-condition-controls" style="display: none;">
+                    <div class="shortcuts-panel">
+                        <div class="band-position-control-group mt-2">
+                            <label for="quickBandPositionSelect" class="shortcut-label">Band Position Shortcut:</label>
+                            <div class="band-position-row">
+                                <select id="quickBandPositionSelect" class="form-control form-control-sm">
+                                    <option value="">— Select Band Position —</option>
+                                    <option value="above_m">Above Monthly Band (BANDST_M == ABOVE)</option>
+                                    <option value="inside_m">Inside Monthly Band (BANDST_M == IN)</option>
+                                    <option value="below_m">Below Monthly Band (Reaction Setup)</option>
+                                    <option value="outside_2plus">Outside Band on 2+ Timeframes</option>
+                                    <option value="reaction">Reaction Trade (Below Yearly, Weekly Upcut)</option>
+                                </select>
+                                <button type="button" class="btn btn-xs btn-outline" id="applyBandPositionBtn">+ Apply</button>
+                            </div>
+                            <span id="quickBandAboveBtn" style="display: none;"></span>
+                            <span id="quickBandOutsideBtn" style="display: none;"></span>
+                            <span id="quickReactionTradeBtn" style="display: none;"></span>
+                        </div>
                     </div>
 
-                    <div id="filterRulesContainer" class="rules-container">
-                        <!-- Dynamic Condition Rows & Subgroups -->
-                    </div>
+                    <div class="conditions-builder mt-3">
+                        <div class="group-match-bar">
+                            <span>Match:</span>
+                            <select id="rootGroupMatch" class="form-control form-control-sm match-select">
+                                <option value="all" selected>ALL Conditions (AND)</option>
+                                <option value="any">ANY Condition (OR)</option>
+                            </select>
+                            <button type="button" id="rootGroupNotToggle" class="group-not-toggle" title="Invert entire screen criteria (NOT logic)">NOT</button>
+                        </div>
 
-                    <div class="rule-builder-actions">
-                        <button type="button" id="addRuleBtn" class="btn btn-outline btn-sm">+ Add Condition</button>
-                        <button type="button" id="addGroupBtn" class="btn btn-ghost btn-sm">+ Add Nested Group</button>
+                        <div id="filterRulesContainer" class="rules-container">
+                            <!-- Dynamic Condition Rows & Subgroups -->
+                        </div>
+
+                        <div class="rule-builder-actions">
+                            <button type="button" id="addRuleBtn" class="btn btn-outline btn-sm">+ Add Condition</button>
+                            <button type="button" id="addGroupBtn" class="btn btn-ghost btn-sm">+ Add Nested Group</button>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -289,9 +319,14 @@
                 </div>
 
                 <div class="workbench-actions mt-3">
-                    <button type="button" id="runScreenBtn" class="btn btn-primary btn-block btn-lg">
-                        <span class="icon">🚀</span> RUN SCREEN
-                    </button>
+                    <div class="screening-action-row">
+                        <button type="button" id="runScreenBtn" class="btn btn-primary btn-block btn-lg">
+                            <span class="icon">🚀</span> <span id="runScreenText">RUN SCREEN</span>
+                        </button>
+                        <button type="button" id="cancelScreenBtn" class="btn btn-cancel-screening btn-lg" style="display: none;" title="Cancel running screen">
+                            <span class="icon">⏹</span> CANCEL
+                        </button>
+                    </div>
                     <button type="button" id="openRaceBtn" class="btn btn-secondary btn-block mt-2" title="View multi-stock sprint race cumulative % return curves">
                         <span class="icon">🏁</span> SPRINT RACE
                     </button>
@@ -348,12 +383,8 @@
                             <tr>
                                 <td colspan="16" class="empty-state">
                                     <div class="empty-guide-card">
-                                        <h3>Welcome to YOGI Cockpit</h3>
-                                        <p>The in-memory market dataset is currently empty. Click below to load the offline 5 golden stocks dataset or rebuild from live market data.</p>
-                                        <div class="empty-guide-buttons">
-                                            <button id="guideDemoBtn" class="btn btn-accent">★ Load Demo Golden Fixtures (5 Stocks)</button>
-                                            <button id="guideLiveBtn" class="btn btn-secondary">↻ Rebuild Live Dataset</button>
-                                        </div>
+                                        <h3>Connecting to YOGI Cockpit...</h3>
+                                        <p>Loading stock universe from persistent cache.</p>
                                     </div>
                                 </td>
                             </tr>

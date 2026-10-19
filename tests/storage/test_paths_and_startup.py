@@ -121,3 +121,19 @@ async def test_explicit_demo_activation_still_works():
     assert state.is_demo is True
     assert len(state.dataset) == 5
     assert "MANYAVAR" in state.dataset
+
+
+def test_storage_seed_asset_resolution_independence(tmp_path: Path):
+    """Verify CsvBandsRepository resolves seed fixture from storage/data independently of cockpit."""
+    repo = CsvBandsRepository(data_dir=tmp_path / "bands")
+    seed_file = repo._resolve_seed_fixture()
+    assert seed_file is not None
+    assert seed_file.name == "bands_seed.csv"
+    assert seed_file.is_file()
+    # Canonical path must point to yogi/storage/data/bands_seed.csv
+    posix_path = seed_file.as_posix()
+    assert "yogi/storage/data/bands_seed.csv" in posix_path
+    # Verify bands were seeded into repository
+    assert repo.get_band("RELIANCE", "D") is not None
+    assert repo.get_all_bands("RELIANCE")["D"] is not None
+

@@ -7,6 +7,7 @@ against prototype LISTS_LOGIC.txt and verify_lists.py.
 import pytest
 
 from yogi.core.configuration.catalog import StrategyCatalog
+from yogi.core.contracts.filter import FilterOperator, FilterRuleSpec
 from yogi.core.contracts.strategy import StrategySpec
 from yogi.filter.engine import FilterEngine
 from yogi.strategy.presets import (
@@ -217,3 +218,64 @@ def test_group_e_presets_ranking_and_cutoffs():
     }
     res_e3 = engine.evaluate(records, E3_RANK_CLIMBERS.filter_group)
     assert res_e3.matching_symbols == ["CLIMBER"]
+
+
+def test_ema_up_count_filter_evaluation_and_boundary_thresholds():
+    """Verify EMA_UP_COUNT in FilterEngine and semantic consistency with A2_ALL_6_TF_EMA_UP.
+
+    Covers:
+    - Requirement 7: The metric is correctly exposed to the real filter/condition evaluation path.
+    - Requirement 8: Threshold comparisons work at boundaries (0, 6, between, gte, eq, gt, lte).
+    - Requirement 9: Preset A2_ALL_6_TF_EMA_UP behavior remains consistent with shared UP definition.
+    """
+    engine = FilterEngine()
+
+    records = {
+        "ALL_UP_YES": {**{f"EMA_{tf}": "yes" for tf in ("D", "W", "M", "Q", "H", "Y")}, "EMA_UP_COUNT": 6},
+        "ALL_UP_MIXED": {
+            "EMA_D": "upcut", "EMA_W": "yes", "EMA_M": "upcut",
+            "EMA_Q": "yes", "EMA_H": "upcut", "EMA_Y": "yes",
+            "EMA_UP_COUNT": 6,
+        },
+        "FIVE_UP": {**{f"EMA_{tf}": "yes" for tf in ("D", "W", "M", "Q", "H")}, "EMA_Y": "downcut", "EMA_UP_COUNT": 5},
+        "FOUR_UP": {**{f"EMA_{tf}": "yes" for tf in ("D", "W", "M", "Q")}, "EMA_H": "no", "EMA_Y": "na", "EMA_UP_COUNT": 4},
+        "ONE_UP": {"EMA_D": "upcut", "EMA_W": "no", "EMA_M": "no", "EMA_Q": "no", "EMA_H": "no", "EMA_Y": "no", "EMA_UP_COUNT": 1},
+        "ZERO_UP": {**{f"EMA_{tf}": "no" for tf in ("D", "W", "M", "Q", "H", "Y")}, "EMA_UP_COUNT": 0},
+        "ALL_NA": {**{f"EMA_{tf}": "na" for tf in ("D", "W", "M", "Q", "H", "Y")}, "EMA_UP_COUNT": 0},
+    }
+
+    # Requirement 9: A2_ALL_6_TF_EMA_UP matches ALL_UP_YES and ALL_UP_MIXED
+    res_a2 = engine.evaluate(records, A2_ALL_6_TF_EMA_UP.filter_group)
+    assert set(res_a2.matching_symbols) == {"ALL_UP_YES", "ALL_UP_MIXED"}
+
+    # Requirement 8 & 7: Boundary threshold comparisons
+    # Boundary EQ 6
+    rule_eq_6 = FilterRuleSpec(field="EMA_UP_COUNT", op=FilterOperator.EQ, value=6)
+    res_eq_6 = engine.evaluate(records, rule_eq_6)
+    assert set(res_eq_6.matching_symbols) == {"ALL_UP_YES", "ALL_UP_MIXED"}
+    # Exact consistency: matching symbols for EMA_UP_COUNT == 6 MUST equal A2_ALL_6_TF_EMA_UP!
+    assert set(res_eq_6.matching_symbols) == set(res_a2.matching_symbols)
+
+    # Boundary GTE 6
+    rule_gte_6 = FilterRuleSpec(field="EMA_UP_COUNT", op=FilterOperator.GTE, value=6)
+    assert set(engine.evaluate(records, rule_gte_6).matching_symbols) == {"ALL_UP_YES", "ALL_UP_MIXED"}
+
+    # Mid-range GTE 4
+    rule_gte_4 = FilterRuleSpec(field="EMA_UP_COUNT", op=FilterOperator.GTE, value=4)
+    assert set(engine.evaluate(records, rule_gte_4).matching_symbols) == {"ALL_UP_YES", "ALL_UP_MIXED", "FIVE_UP", "FOUR_UP"}
+
+    # Between [1, 5]
+    rule_between_1_5 = FilterRuleSpec(field="EMA_UP_COUNT", op=FilterOperator.BETWEEN, value=[1, 5])
+    assert set(engine.evaluate(records, rule_between_1_5).matching_symbols) == {"FIVE_UP", "FOUR_UP", "ONE_UP"}
+
+    # Boundary EQ 0
+    rule_eq_0 = FilterRuleSpec(field="EMA_UP_COUNT", op=FilterOperator.EQ, value=0)
+    assert set(engine.evaluate(records, rule_eq_0).matching_symbols) == {"ZERO_UP", "ALL_NA"}
+
+    # Boundary LTE 0
+    rule_lte_0 = FilterRuleSpec(field="EMA_UP_COUNT", op=FilterOperator.LTE, value=0)
+    assert set(engine.evaluate(records, rule_lte_0).matching_symbols) == {"ZERO_UP", "ALL_NA"}
+
+    # Boundary GT 0
+    rule_gt_0 = FilterRuleSpec(field="EMA_UP_COUNT", op=FilterOperator.GT, value=0)
+    assert set(engine.evaluate(records, rule_gt_0).matching_symbols) == {"ALL_UP_YES", "ALL_UP_MIXED", "FIVE_UP", "FOUR_UP", "ONE_UP"}

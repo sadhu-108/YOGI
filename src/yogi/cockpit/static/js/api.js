@@ -30,11 +30,13 @@ const API = {
         return await res.json();
     },
 
-    async refreshDataset(symbols = null, symbolLimit = null, provider = null) {
+    async refreshDataset(symbols = null, symbolLimit = null, provider = null, background = null, forceRefreshBars = false) {
         const payload = {};
         if (symbols) payload.symbols = symbols;
         if (symbolLimit) payload.symbol_limit = symbolLimit;
         if (provider) payload.provider = provider;
+        if (background !== null) payload.background = background;
+        if (forceRefreshBars) payload.force_refresh_bars = forceRefreshBars;
 
         const res = await fetch('/api/dataset/refresh', {
             method: 'POST',
@@ -45,6 +47,7 @@ const API = {
         return await res.json();
     },
 
+
     async getTable(columns = null) {
         const url = columns ? `/api/table?columns=${encodeURIComponent(columns)}` : '/api/table';
         const res = await fetch(url);
@@ -52,13 +55,32 @@ const API = {
         return await res.json();
     },
 
-    async runScreen(screenRequest) {
-        const res = await fetch('/api/screen', {
+    async runScreen(screenRequest, signal = null) {
+        const fetchOpts = {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(screenRequest)
-        });
+        };
+        if (signal) {
+            fetchOpts.signal = signal;
+        }
+        const res = await fetch('/api/screen', fetchOpts);
         if (!res.ok) await _handleError(res, 'Failed to run screen');
+        return await res.json();
+    },
+
+    async getScreenProgress(requestId) {
+        const res = await fetch(`/api/screen/progress/${encodeURIComponent(requestId)}`);
+        if (!res.ok) await _handleError(res, 'Failed to fetch screen progress');
+        return await res.json();
+    },
+
+    async cancelScreen(requestId) {
+        const res = await fetch(`/api/screen/cancel/${encodeURIComponent(requestId)}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+        });
+        if (!res.ok) await _handleError(res, 'Failed to cancel screen');
         return await res.json();
     },
 
@@ -215,6 +237,22 @@ const API = {
         a.click();
         window.URL.revokeObjectURL(url);
         a.remove();
+    },
+
+    async getSettings() {
+        const res = await fetch('/api/settings');
+        if (!res.ok) await _handleError(res, 'Failed to fetch settings');
+        return await res.json();
+    },
+
+    async updateSettings(settings) {
+        const res = await fetch('/api/settings', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(settings)
+        });
+        if (!res.ok) await _handleError(res, 'Failed to update settings');
+        return await res.json();
     }
 };
 

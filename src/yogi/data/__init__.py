@@ -1,5 +1,9 @@
 """YOGI Data — External Ingestion and Normalization Layer."""
 
+from yogi.data.ingestion import (
+    IngestionResult,
+    MarketDataIngestionService,
+)
 from yogi.data.normalization import (
     fetch_bse_universe,
     fetch_nse_universe,
@@ -15,12 +19,11 @@ from yogi.data.providers import (
     DataProviderAuthenticationError,
     DataProviderError,
     DemoDataProvider,
-    YFinanceDataProvider,
-    ZerodhaDataProvider,
-    yf_ticker,
 )
 
 __all__ = [
+    "IngestionResult",
+    "MarketDataIngestionService",
     "DataProviderError",
     "DataProviderAuthenticationError",
     "DemoDataProvider",
@@ -37,3 +40,14 @@ __all__ = [
     "fetch_nse_universe",
     "fetch_bse_universe",
 ]
+
+
+def __getattr__(name: str):
+    if name in ("YFinanceDataProvider", "yf_ticker"):
+        from yogi.data.providers.yfinance import YFinanceDataProvider, yf_ticker
+        mapping = {"YFinanceDataProvider": YFinanceDataProvider, "yf_ticker": yf_ticker}
+        return mapping[name]
+    if name == "ZerodhaDataProvider":
+        from yogi.data.providers.zerodha import ZerodhaDataProvider
+        return ZerodhaDataProvider
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

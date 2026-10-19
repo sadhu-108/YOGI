@@ -82,6 +82,7 @@ KNOWN_LABELS: dict[str, str] = {
     "OUT_BELOW": "Out Below",
     "N_ABOVE": "Count Above",
     "N_BELOW": "Count Below",
+    "EMA_UP_COUNT": "EMA UP Count",
 }
 
 NON_NUMERIC_KEYS: frozenset[str] = frozenset({
@@ -108,6 +109,7 @@ INTEGER_KEYS: frozenset[str] = frozenset({
     "N_BELOW",
     "IC_BARS",
     "IC_AGE",
+    "EMA_UP_COUNT",
 })
 
 
@@ -179,12 +181,12 @@ def build_column_definition(key: str) -> ColumnDefinition:
     label = derive_label(key)
 
     # Determine numeric nature
-    if key in NON_NUMERIC_KEYS or key.startswith(("BANDST_", "EMA_", "CD_", "CW_", "CM_", "CQ_", "CH_", "CY_")):
-        is_numeric = False
-        format_string = None
-    elif key.startswith("RANK_") or key in INTEGER_KEYS:
+    if key.startswith("RANK_") or key in INTEGER_KEYS:
         is_numeric = True
         format_string = "0"
+    elif key in NON_NUMERIC_KEYS or key.startswith(("BANDST_", "EMA_", "CD_", "CW_", "CM_", "CQ_", "CH_", "CY_")):
+        is_numeric = False
+        format_string = None
     else:
         is_numeric = True
         format_string = "0.00"

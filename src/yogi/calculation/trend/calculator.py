@@ -9,6 +9,8 @@ from yogi.core.contracts.calculation import CalculationContext, CalculationResul
 
 ROC_DAYS = {"DROC": 1, "WROC": 5, "MROC": 21, "QROC": 63, "HROC": 126, "YROC": 252}
 EMA_FAST, EMA_SLOW = 3, 5
+EMA_TIMEFRAMES: tuple[str, ...] = ("D", "W", "M", "Q", "H", "Y")
+EMA_UP_STATES: frozenset[str] = frozenset({"upcut", "yes"})
 TF_RULES = {"W": "W", "M": "ME", "Q": "QE", "H": "2QE", "Y": "YE"}
 
 
@@ -98,6 +100,135 @@ def ema_status(bars: pd.Series, fast: int = EMA_FAST, slow: int = EMA_SLOW) -> s
     return "yes" if cur > 0 else "no"
 
 
+def calculate_dynamic_ema_signal(
+    bars: Union[Sequence[Any], pd.Series],
+    p1: int,
+    p2: int,
+    timeframe: str = "D",
+    closed_candle_only: Optional[bool] = None,
+) -> dict[str, Any]:
+    """Calculate dynamic EMA relationship, crossover signals, and strength spread.
+
+    Parameters:
+        bars: OHLCV MarketBar sequence, or pandas Series of closing prices.
+        p1: First EMA period (positive integer).
+        p2: Second EMA period (positive integer, p1 != p2).
+        timeframe: Standard timeframe code ('D', 'W', 'M', 'Q', 'H', 'Y').
+        closed_candle_only: If True, evaluates on completed candle (iloc[-2] vs iloc[-3]).
+                           Defaults to True for higher timeframes (W, M, Q, H, Y) per
+                           ADR-017 Decision A2, and False for Daily ('D').
+
+    Returns:
+        Dictionary containing:
+        - state: Primary state label ("UP", "DOWN", "UPCUT", "DOWNCUT", or "na")
+        - is_up: bool, True if EMA_P1 > EMA_P2 on evaluation bar (includes UPCUT)
+        - is_down: bool, True if EMA_P1 < EMA_P2 on evaluation bar (includes DOWNCUT)
+        - is_upcut: bool, True if EMA_P1 crossed from at-or-below to above EMA_P2
+        - is_downcut: bool, True if EMA_P1 crossed from at-or-above to below EMA_P2
+        - cur_diff: float, EMA_P1 - EMA_P2 on evaluation bar
+        - prev_diff: float, EMA_P1 - EMA_P2 on previous bar
+        - p1_val: float, EMA_P1 on evaluation bar
+        - p2_val: float, EMA_P2 on evaluation bar
+        - spread_pct: float, ((EMA_P1 - EMA_P2) / EMA_P2) * 100 on evaluation bar
+    """
+    empty_result = {
+        "state": "na",
+        "is_up": False,
+        "is_down": False,
+        "is_upcut": False,
+        "is_downcut": False,
+        "cur_diff": None,
+        "prev_diff": None,
+        "p1_val": None,
+        "p2_val": None,
+        "ema_fast": None,
+        "ema_slow": None,
+        "spread_pct": None,
+    }
+
+    if p1 <= 0 or p2 <= 0:
+        raise ValueError(f"Both p1 and p2 must be positive integers >= 1 (got p1={p1}, p2={p2})")
+    if p1 == p2:
+        raise ValueError(f"P1 and P2 must be distinct positive integers (got p1={p1}, p2={p2})")
+
+    if bars is None:
+        return empty_result
+
+    # Convert bars to closing series
+    if isinstance(bars, pd.Series):
+        c = bars.dropna()
+    elif isinstance(bars, (list, tuple)):
+        if not bars:
+            return empty_result
+        if hasattr(bars[0], "close"):
+            c = pd.Series([float(b.close) for b in bars if b.close is not None and not pd.isna(b.close)])
+        else:
+            c = pd.Series([float(x) for x in bars if x is not None and not pd.isna(x)])
+    else:
+        return empty_result
+
+    tf = (timeframe or "D").strip().upper()
+    if closed_candle_only is None:
+        closed_candle_only = (tf != "D")
+
+    # Required bar count: need at least max(p1, p2) bars, plus lookback
+    min_required = 3 if closed_candle_only else 2
+    if len(c) < min_required:
+        return empty_result
+
+    # Compute exponential moving averages with adjust=False
+    f_series = ema(c, p1).dropna()
+    s_series = ema(c, p2).dropna()
+    n = min(len(f_series), len(s_series))
+    if n < min_required:
+        return empty_result
+
+    if closed_candle_only:
+        # Last closed/completed candle is iloc[-2], candle before is iloc[-3]
+        f_cur, s_cur = float(f_series.iloc[-2]), float(s_series.iloc[-2])
+        f_prev, s_prev = float(f_series.iloc[-3]), float(s_series.iloc[-3])
+    else:
+        # Latest available candle is iloc[-1], candle before is iloc[-2]
+        f_cur, s_cur = float(f_series.iloc[-1]), float(s_series.iloc[-1])
+        f_prev, s_prev = float(f_series.iloc[-2]), float(s_series.iloc[-2])
+
+    cur = f_cur - s_cur
+    prev = f_prev - s_prev
+
+    is_upcut = (prev <= 0.0 < cur)
+    is_downcut = (prev >= 0.0 > cur)
+    is_up = (cur > 0.0)
+    is_down = (cur < 0.0)
+
+    if is_upcut:
+        state = "UPCUT"
+    elif is_downcut:
+        state = "DOWNCUT"
+    elif is_up:
+        state = "UP"
+    elif is_down:
+        state = "DOWN"
+    else:
+        state = "na"
+
+    spread_pct = ((cur / s_cur) * 100.0) if s_cur != 0 else None
+
+    return {
+        "state": state,
+        "is_up": is_up,
+        "is_down": is_down,
+        "is_upcut": is_upcut,
+        "is_downcut": is_downcut,
+        "cur_diff": cur,
+        "prev_diff": prev,
+        "p1_val": f_cur,
+        "p2_val": s_cur,
+        "ema_fast": f_cur,
+        "ema_slow": s_cur,
+        "spread_pct": spread_pct,
+    }
+
+
 def per_tf_ema(close: pd.Series, bars_cache: Optional[Mapping[str, pd.Series]] = None) -> dict[str, str]:
     """Determine EMA 3/5 cross status for each standard timeframe."""
     out: dict[str, str] = {}
@@ -112,6 +243,32 @@ def per_tf_ema(close: pd.Series, bars_cache: Optional[Mapping[str, pd.Series]] =
             b = c.resample(rule).last().dropna() if rule else c
         out[tf] = ema_status(b)
     return out
+
+
+def calculate_ema_up_count(ema_states: Mapping[str, Any]) -> int:
+    """Count the number of standard timeframes (D, W, M, Q, H, Y) in an EMA UP state.
+
+    A timeframe counts as UP when its existing signal state is either:
+      - 'upcut': a fresh bullish crossover
+      - 'yes': an established bullish state
+
+    Non-UP states ('downcut', 'no', 'na', None, missing, or any other value)
+    contribute zero.
+
+    Parameters:
+        ema_states: Mapping containing timeframe states, keyed either by timeframe
+                    code ('D', 'W', 'M', 'Q', 'H', 'Y') or by full metric name
+                    ('EMA_D', 'EMA_W', 'EMA_M', 'EMA_Q', 'EMA_H', 'EMA_Y').
+
+    Returns:
+        Integer count from 0 through 6, inclusive.
+    """
+    count = 0
+    for tf in EMA_TIMEFRAMES:
+        state = ema_states.get(f"EMA_{tf}") if f"EMA_{tf}" in ema_states else ema_states.get(tf)
+        if state is not None and str(state).strip().lower() in EMA_UP_STATES:
+            count += 1
+    return count
 
 
 def monthly_block(close: pd.Series, bars: Optional[pd.Series] = None) -> dict[str, Any]:
@@ -191,10 +348,29 @@ def quarter_block(close: pd.Series, bars: Optional[pd.Series] = None) -> dict[st
     return out
 
 
-def half_block(close: pd.Series, bars: Optional[pd.Series] = None) -> dict[str, Any]:
-    """Calculate half-year ROCs named by calendar half (H1, H2) and stable aliases."""
+def half_block(
+    close: pd.Series,
+    bars: Optional[pd.Series] = None,
+    policy: str = "prototype",
+) -> dict[str, Any]:
+    """Calculate half-year ROCs named by calendar half (H1, H2) and stable aliases.
+
+    Supported policies:
+    - 'prototype' (default): Uses 2QE resampling (ending Mar 31 and Sep 30) for prototype parity.
+    - 'calendar': Uses Calendar Half-Year (H1 = Jan–Jun ending Jun 30; H2 = Jul–Dec ending Dec 31).
+    """
     c = close.dropna()
-    hb = bars if bars is not None and not bars.empty else c.resample("2QE").last().dropna()
+    if bars is not None and not bars.empty:
+        hb = bars
+    elif policy == "calendar":
+        def _to_half_end(ts: Any) -> pd.Timestamp:
+            pdt = pd.to_datetime(ts)
+            return pd.Timestamp(year=pdt.year, month=6, day=30) if pdt.month <= 6 else pd.Timestamp(year=pdt.year, month=12, day=31)
+        half_ends = c.index.map(_to_half_end)
+        hb = c.groupby(half_ends).last().dropna()
+    else:
+        hb = c.resample("2QE").last().dropna()
+
     out: dict[str, Any] = {
         "H_CUR": None, "H_P1": None, "H_P2": None,
         "H_CUR_KEY": None, "H_KEYS": None,
@@ -256,19 +432,50 @@ def calendar_years(close: pd.Series, latest_year: int) -> dict[str, Any]:
 
 
 def cagr_trailing(close: pd.Series, n: int) -> Optional[float]:
-    """Calculate annualized Compound Annual Growth Rate over trailing n years."""
-    c = close.dropna()
-    if len(c) == 0:
+    """Calculate annualized Compound Annual Growth Rate over trailing n years.
+
+    Safely handles edge cases:
+    - n <= 0, None, non-integer, non-finite, or non-numeric durations return None.
+    - None, empty series, non-DatetimeIndex series, or insufficient history return None.
+    - Negative starting or ending prices return None.
+    - Non-finite inputs or intermediate calculations return None.
+    - Zero ending price returns -100.0 (representing a 100% total loss).
+    """
+    if close is None or not isinstance(close, pd.Series):
         return None
-    latest = c.index[-1]
-    target = latest - pd.DateOffset(years=n)
+    if isinstance(n, bool) or not isinstance(n, (int, np.integer)):
+        return None
+    if n <= 0:
+        return None
+
+    c = close.replace([np.inf, -np.inf], np.nan).dropna()
+    if len(c) < 2:
+        return None
+    if not isinstance(c.index, pd.DatetimeIndex):
+        return None
+
+    try:
+        latest = c.index[-1]
+        target = latest - pd.DateOffset(years=int(n))
+    except (TypeError, ValueError, OverflowError):
+        return None
+
     past = c[c.index <= target]
     if len(past) == 0:
         return None
     start = past.iloc[-1]
-    if start <= 0:
+    end = c.iloc[-1]
+    if not (np.isfinite(start) and np.isfinite(end)):
         return None
-    return float(((c.iloc[-1] / start) ** (1.0 / n) - 1.0) * 100.0)
+    if start <= 0 or end < 0:
+        return None
+    if end == 0:
+        return -100.0
+    try:
+        val = ((end / start) ** (1.0 / float(n)) - 1.0) * 100.0
+        return float(val) if np.isfinite(val) else None
+    except (TypeError, ValueError, OverflowError):
+        return None
 
 
 def cagrs(close: pd.Series) -> dict[str, Optional[float]]:
@@ -477,6 +684,7 @@ class TrendCalculator(ICalcModule):
                 "Q_CUR": None, "Q_P1": None, "Q_P2": None, "Q_P3": None,
                 "H_CUR": None, "H_P1": None, "H_P2": None,
                 "UPCUT": "na", "ATH_DIFF": None, "SUSPECT": "N",
+                "EMA_UP_COUNT": 0,
             }
             return CalculationResult(symbol=symbol, module_name=self.name, metrics=metrics)
 
@@ -485,10 +693,17 @@ class TrendCalculator(ICalcModule):
 
         # Pre-extract timeframe closing series from MarketContext
         bars_cache: dict[str, pd.Series] = {"D": close}
+        half_policy = str(context.parameters.get("half_year_policy", "prototype"))
         for tf in ("W", "M", "Q", "H", "Y"):
             tf_b = context.market_context.get_bars(tf)
             if tf_b:
                 bars_cache[tf] = pd.Series([b.close for b in tf_b], index=[b.timestamp for b in tf_b])
+            elif tf == "H" and half_policy == "calendar":
+                def _to_h_end(ts: Any) -> pd.Timestamp:
+                    pdt = pd.to_datetime(ts)
+                    return pd.Timestamp(year=pdt.year, month=6, day=30) if pdt.month <= 6 else pd.Timestamp(year=pdt.year, month=12, day=31)
+                h_ends = close.index.map(_to_h_end)
+                bars_cache[tf] = close.groupby(h_ends).last().dropna()
             else:
                 rule = TF_RULES.get(tf)
                 bars_cache[tf] = close.resample(rule).last().dropna() if rule else close
@@ -510,7 +725,7 @@ class TrendCalculator(ICalcModule):
 
         # Quarter and Half calendar blocks
         metrics.update(quarter_block(close, bars_cache.get("Q")))
-        metrics.update(half_block(close, bars_cache.get("H")))
+        metrics.update(half_block(close, bars_cache.get("H"), policy=half_policy))
 
         # Calendar years & CAGRs
         metrics.update(calendar_years(close, ly))
@@ -518,8 +733,10 @@ class TrendCalculator(ICalcModule):
         metrics["ATH_DIFF"] = ath_diff(close)
 
         # Per-timeframe EMA 3/5
-        for tf, st in per_tf_ema(close, bars_cache).items():
+        tf_ema = per_tf_ema(close, bars_cache)
+        for tf, st in tf_ema.items():
             metrics[f"EMA_{tf}"] = st
+        metrics["EMA_UP_COUNT"] = calculate_ema_up_count(tf_ema)
 
         # Data Sanity flag: SUSPECT
         bad = False
@@ -570,6 +787,54 @@ class TrendCalculator(ICalcModule):
                         metrics[f"DMI_{tf}"] = "na"
 
         return CalculationResult(symbol=symbol, module_name=self.name, metrics=metrics)
+
+    def supports_condition(self, condition_type: str) -> bool:
+        """Return True if this calculation module supports the specified dynamic condition type."""
+        return condition_type == "ema"
+
+    def calculate_dynamic(
+        self,
+        symbol: str,
+        rule: Any,
+        context: CalculationContext,
+    ) -> Any:
+        """Execute on-demand dynamic indicator calculation for a symbol and rule."""
+        if getattr(rule, "condition_type", None) != "ema":
+            return None
+
+        tf = getattr(rule, "timeframe", None)
+        p1 = getattr(rule, "p1", None)
+        p2 = getattr(rule, "p2", None)
+        params = getattr(rule, "params", {}) or {}
+        if tf is None:
+            tf = params.get("timeframe", "D")
+        if p1 is None:
+            p1 = params.get("p1")
+        if p2 is None:
+            p2 = params.get("p2")
+
+        if p1 is None or p2 is None:
+            return None
+
+        tf_str = (tf or "D").strip().upper()
+        bars = context.market_context.get_bars(tf_str)
+        if not bars:
+            return {
+                "state": "na",
+                "is_up": False,
+                "is_down": False,
+                "is_upcut": False,
+                "is_downcut": False,
+                "cur_diff": None,
+                "prev_diff": None,
+                "p1_val": None,
+                "p2_val": None,
+                "ema_fast": None,
+                "ema_slow": None,
+                "spread_pct": None,
+            }
+        return calculate_dynamic_ema_signal(bars, p1=int(p1), p2=int(p2), timeframe=tf_str)
+
 
 
 # =============================================================================

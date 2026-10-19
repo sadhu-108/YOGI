@@ -19,6 +19,7 @@ class CockpitTable {
         this.sortCol = null;
         this.sortAsc = true;
         this.secondarySortCol = null;
+        this.emptyMessage = null;
     }
 
     setSecondarySort(colKey) {
@@ -32,6 +33,9 @@ class CockpitTable {
         this.columns = payload.columns || [];
         this.rawRows = [...(payload.rows || [])];
         this.displayRows = [...this.rawRows];
+        if (this.rawRows.length > 0) {
+            this.emptyMessage = null;
+        }
 
         this._renderHeaders();
         this._applySortAndFilter();
@@ -131,7 +135,7 @@ class CockpitTable {
             td.colSpan = Math.max(this.columns.length, 1);
             td.className = 'empty-state';
             td.textContent = this.rawRows.length === 0
-                ? 'No records matched the qualification/selection criteria.'
+                ? (this.emptyMessage || 'No records matched the qualification/selection criteria.')
                 : 'No stocks matched your search filter in current results.';
             tr.appendChild(td);
             this.tbody.appendChild(tr);

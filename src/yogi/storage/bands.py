@@ -74,13 +74,19 @@ class CsvBandsRepository(IBandsRepository, IBandAuditRepository, IBandBackupServ
             self._load_from_disk()
 
     def _resolve_seed_fixture(self) -> Optional[Path]:
-        """Locate bands_seed.csv from configured fixture directory or cockpit data."""
+        """Locate bands_seed.csv from configured fixture directory, storage-owned data, or legacy fallback."""
         if self._fixtures_dir and (self._fixtures_dir / "bands_seed.csv").exists():
             return self._fixtures_dir / "bands_seed.csv"
 
-        default_cockpit_seed = Path(__file__).resolve().parent.parent / "cockpit" / "data" / "bands_seed.csv"
-        if default_cockpit_seed.exists():
-            return default_cockpit_seed
+        # Canonical storage-owned asset
+        storage_seed = Path(__file__).resolve().parent / "data" / "bands_seed.csv"
+        if storage_seed.exists():
+            return storage_seed
+
+        # Legacy fallback if cockpit asset exists
+        legacy_cockpit_seed = Path(__file__).resolve().parent.parent / "cockpit" / "data" / "bands_seed.csv"
+        if legacy_cockpit_seed.exists():
+            return legacy_cockpit_seed
 
         return None
 

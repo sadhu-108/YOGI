@@ -41,9 +41,31 @@ def _to_naive_datetime(ts: Any) -> datetime:
     return pdt.to_pydatetime().replace(tzinfo=None)
 
 
+def _resample_calendar_half(df: pd.DataFrame, agg: dict[str, Any]) -> pd.DataFrame:
+    """Resample daily OHLCV bars into Calendar Half-Years:
+    - H1: Jan 1 to Jun 30 (labeled YYYY-06-30)
+    - H2: Jul 1 to Dec 31 (labeled YYYY-12-31)
+    """
+    if df.empty:
+        return df
+
+    def _to_half_end(ts: Any) -> pd.Timestamp:
+        pdt = pd.to_datetime(ts)
+        return (
+            pd.Timestamp(year=pdt.year, month=6, day=30)
+            if pdt.month <= 6
+            else pd.Timestamp(year=pdt.year, month=12, day=31)
+        )
+
+    half_ends = df.index.map(_to_half_end)
+    res = df.groupby(half_ends).agg(agg).dropna(subset=["close"])
+    return res.sort_index()
+
+
 def resample_bars(
     bars: Sequence[MarketBar],
     timeframe: Union[str, Timeframe],
+    half_year_policy: str = "prototype",
 ) -> tuple[MarketBar, ...]:
     """Resample a sequence of daily MarketBar objects into a target timeframe.
 
@@ -57,6 +79,7 @@ def resample_bars(
     Parameters:
         bars: Daily MarketBar objects (will be sorted chronologically before synthesis).
         timeframe: Target timeframe string or Timeframe enum ("D", "W", "M", "Q", "H", "Y").
+        half_year_policy: "prototype" (2QE boundaries ending Mar/Sep) or "calendar" (H1: Jun 30, H2: Dec 31).
 
     Returns:
         Immutable tuple of synthesized MarketBar objects sorted chronologically.
@@ -120,7 +143,13 @@ def resample_bars(
         agg["volume"] = lambda s: s.sum(min_count=1)
 
     # Resample and drop empty periods (no trading days in period)
-    res = df.resample(rule).agg(agg).dropna(subset=["close"])
+    if tf_key == "H" and half_year_policy == "calendar":
+        res = _resample_calendar_half(df, agg)
+    else:
+        rule = TIMEFRAME_RULES[tf_key]
+        if rule is None:
+            return tuple(clean_bars)
+        res = df.resample(rule).agg(agg).dropna(subset=["close"])
 
     if res.empty:
         return ()
@@ -163,6 +192,7 @@ def build_market_context(
     daily_bars: Sequence[MarketBar],
     timeframes: Optional[Sequence[Union[str, Timeframe]]] = None,
     as_of: Optional[datetime] = None,
+    half_year_policy: str = "prototype",
 ) -> MarketContext:
     """Build an immutable MarketContext populated across all requested timeframes."""
     if timeframes is None:
@@ -173,7 +203,9 @@ def build_market_context(
     bars_by_tf: dict[str, Sequence[MarketBar]] = {}
     for tf in target_tfs:
         tf_key = _normalize_timeframe_key(tf)
-        bars_by_tf[tf_key] = resample_bars(daily_bars, tf_key)
+        bars_by_tf[tf_key] = resample_bars(
+            daily_bars, tf_key, half_year_policy=half_year_policy
+        )
 
     latest_ts: Optional[datetime] = None
     if as_of is not None:
@@ -193,13 +225,18 @@ def build_market_context(
 class TimeframeEngine(ITimeframeEngine):
     """Authoritative engine coordinating multi-timeframe candle synthesis."""
 
+    def __init__(self, half_year_policy: str = "prototype") -> None:
+        self.half_year_policy = half_year_policy
+
     def resample(
         self,
         bars: Sequence[MarketBar],
         timeframe: Union[str, Timeframe],
+        half_year_policy: Optional[str] = None,
     ) -> tuple[MarketBar, ...]:
         """Resample daily bars into the specified target timeframe."""
-        return resample_bars(bars=bars, timeframe=timeframe)
+        policy = half_year_policy if half_year_policy is not None else self.half_year_policy
+        return resample_bars(bars=bars, timeframe=timeframe, half_year_policy=policy)
 
     def build_context(
         self,
@@ -208,12 +245,15 @@ class TimeframeEngine(ITimeframeEngine):
         daily_bars: Sequence[MarketBar],
         timeframes: Optional[Sequence[Union[str, Timeframe]]] = None,
         as_of: Optional[datetime] = None,
+        half_year_policy: Optional[str] = None,
     ) -> MarketContext:
         """Construct an immutable MarketContext across requested timeframes."""
+        policy = half_year_policy if half_year_policy is not None else self.half_year_policy
         return build_market_context(
             symbol=symbol,
             exchange=exchange,
             daily_bars=daily_bars,
             timeframes=timeframes,
             as_of=as_of,
+            half_year_policy=policy,
         )

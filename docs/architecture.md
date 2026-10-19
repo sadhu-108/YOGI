@@ -45,6 +45,7 @@ src/yogi/
 │   └── orchestration/            # PipelineOrchestrator coordinator
 │
 ├── data/                         # [FROZEN] Market data acquisition & normalization
+│   ├── ingestion/                # MarketDataIngestionService (acquisition, freshness planning, caching)
 │   ├── providers/                # External adapters (Demo, Twelve Data, Yahoo, Zerodha)
 │   ├── normalization/            # Pure normalizers (bars, classification, F&O universe)
 │   └── sources/                  # Resilient external data sources (official NSE downloads)
@@ -87,11 +88,11 @@ Every cross-module boundary is governed by an explicit, frozen contract:
 |---|---|---|---|---|
 | **`market_data.py`** | `MarketBar`, `TickData`, `MarketContext`, `IMarketDataProvider`, `ITickDataProvider` | Invariant representation of price, volume, and multi-timeframe bar containers. | Transforming vendor formats or computing indicators. | **FROZEN** |
 | **`provider.py`** | `IDataProvider`, `ProviderHealth` | Common protocol for external vendor adapters. | Business logic, filtering, or caching. | **FROZEN** |
-| **`timeframe.py`** | `ITimeframeSynthesizer` | Contract for aggregating base bars into higher timeframes. | Ranking, screening, or indicator calculation. | **FROZEN** |
-| **`calculation.py`** | `CalculationResult`, `ICalcModule`, `CalculationContext` | Contract for numerical calculation modules. | Network requests, storage I/O, or presentation. | **FROZEN** |
+| **`timeframe.py`** | `ITimeframeEngine` | Contract for aggregating base bars into higher timeframes and constructing `MarketContext`. | Ranking, screening, or indicator calculation. | **FROZEN** |
+| **`calculation.py`** | `CalculationResult`, `ICalcModule`, `CalculationContext` | Contract for numerical calculation modules and polymorphic dynamic indicator calculation (`supports_condition`, `calculate_dynamic`). | Network requests, storage I/O, or presentation. | **FROZEN** |
 | **`bands.py`** | `IBandsRepository`, `BandEntry`, `BandAuditEntry`, `BandBackupInfo`, `BAND_TIMEFRAMES` | Contract for retrieving and persisting user-defined volatility band levels. | Computing band positions or pricing envelopes. | **FROZEN** |
 | **`security.py`** | `SecurityMetadata`, `InstrumentType`, `TradingGroup`, `ISecurityMetadataRepository` | Contract for instrument classification, trading groups, and metadata storage. | External network fetching or price calculation. | **FROZEN** |
-| **`filter.py`** | `IFilterRule`, `FilterOperator`, `FilterRuleSpec`, `FilterGroupSpec` | Contract for boolean candidate qualification (`QUALIFY`). | Sorting, relative ranking, or record truncation. | **FROZEN** |
+| **`filter.py`** | `IFilterRule`, `IConditionEvaluator`, `FilterOperator`, `FilterRuleSpec`, `FilterGroupSpec` | Contract for boolean candidate qualification (`QUALIFY`) and modular condition evaluation (`IConditionEvaluator`). | Sorting, relative ranking, or record truncation. | **FROZEN** |
 | **`ranking.py`** | `IRankingRule`, `RankingOrder`, `RankingMethod`, `RankingResult` | Contract for relative metric sorting across surviving candidates (`ORDER`). | Filtering candidates or truncating output sets. | **FROZEN** |
 | **`selection.py`** | `ISelectionRule`, `SelectionMode`, `RankCutoffSpec`, `SelectionResult` | Contract for applying rank cutoffs and cohort survival limits (`LIMIT`). | Calculating metric ranks or filtering records. | **FROZEN** |
 | **`strategy.py`** | `IStrategy`, `StrategySpec`, `StrategyValidationResult` | Contract for declarative screening recipe composition. | Direct calculation or data mutation. | **FROZEN** |
@@ -135,15 +136,17 @@ System execution is governed by two cleanly separated configuration models ([ADR
 ```mermaid
 flowchart TD
     Config["EngineConfig + ScreeningQuery"] --> Orchestrator["PipelineOrchestrator"]
-    Orchestrator --> Provider["Data Provider (via RegistryHub)"]
-    Provider --> Synthesizer["Timeframe Synthesizer (D -> W, M, Q, H, Y)"]
+    Orchestrator --> Ingestion["MarketDataIngestionService"]
+    Ingestion --> Provider["Data Provider (via RegistryHub)"]
+    Ingestion --> Storage["MarketBarsCache (IBarsCache)"]
+    Orchestrator --> Synthesizer["Timeframe Synthesizer (D -> W, M, Q, H, Y)"]
     Synthesizer --> Context["MarketContext Container"]
     Context --> Calcs["Calculation Modules (5 Pillars)"]
     Calcs --> Metadata["Metadata Enrichment (SecurityMetadata)"]
     Metadata --> Qualify["QUALIFY (FilterEngine)"]
     Qualify --> Order["ORDER (RankingEngine)"]
-    Order --> Show["SHOW (ResultAssembler Columns)"]
     Show --> Limit["LIMIT (SelectionEngine Slicing)"]
+    Order --> Show["SHOW (ResultAssembler Columns)"]
     Limit --> Results["RESULTS (QueryResult)"]
 ```
 
@@ -153,10 +156,12 @@ flowchart TD
 
 The data layer ingests vendor data and converts it into pure, canonical YOGI domain objects ([ADR-006](decisions.md#adr-006-data-providers--normalization-boundaries)):
 
+- **Ingestion Service (`src/yogi/data/ingestion/`)**:
+  - `MarketDataIngestionService`: Evaluates cache freshness, plans incremental/backfill requests, executes batched or individual provider queries, merges updates with cached history, and persists newly downloaded bars via `IBarsCache`.
 - **Provider Adapters (`src/yogi/data/providers/`)**:
   - `DemoProvider`: 100% offline, deterministic synthetic data generator for testing and demo mode.
   - `TwelveDataProvider`: Production REST client for Twelve Data Indian equities with rate limiting and exponential backoff ([ADR-009](decisions.md#adr-009-twelve-data-provider-adapter-integration)).
-  - `YFinanceProvider`: Fallback provider for historical daily OHLCV bars.
+  - `YFinanceProvider`: Primary live/fallback provider for historical daily OHLCV bars.
   - `ZerodhaProvider`: Webhook and API adapter for Zerodha Kite Connect.
 - **Instrument Classification (`src/yogi/data/normalization/classification.py`)**:
   - `InstrumentClassifier`: Pure deterministic classifier mapping symbols to `InstrumentType` (`EQUITY`, `ETF`, `INDEX`, `DEBT`, `HYBRID`, `PREFERENCE`, `UNKNOWN`) and `TradingGroup` (`LARGE_CAP`, `MID_CAP`, `SMALL_CAP`, `MICRO_CAP`, `SME`, etc.).
@@ -167,8 +172,9 @@ The data layer ingests vendor data and converts it into pure, canonical YOGI dom
 
 ## 8. Timeframe Engine (`src/yogi/timeframe/`)
 
-The Timeframe Engine aggregates base daily bars into higher calendar timeframes ([ADR-007](decisions.md#adr-007-timeframe-engine-bounded-responsibility)):
+The Timeframe Engine aggregates base daily bars into higher calendar timeframes ([ADR-007](decisions.md#adr-007-timeframe-engine-bounded-responsibility), [ADR-016](decisions.md#adr-016-timeframe-engine-contract-itimeframeengine-adoption--reconciliation)):
 
+- **Authoritative Contract**: Implements the frozen `ITimeframeEngine` abstract contract (`src/yogi/core/contracts/timeframe.py`) providing `resample` and `build_context` methods. Enables Core Orchestration dependency inversion and mock isolation without adding dynamic registry overhead ([ADR-016](decisions.md#adr-016-timeframe-engine-contract-itimeframeengine-adoption--reconciliation)).
 - **Supported Timeframes**: `D` (Daily), `W` (Weekly), `M` (Monthly), `Q` (Quarterly), `H` (Half-Yearly), `Y` (Yearly).
 - **Synthesis Rules**: Strictly bounded OHLCV aggregation preserving standard financial invariants (Open=first open, High=max high, Low=min low, Close=last close, Volume=sum volume).
 - **Metric Decoupling**: Screening conditions specify their own timeframe (e.g. `ROC_63[D]`, `EMA_CROSS[W]`, `BD[M]`), evaluated concurrently across the multi-timeframe context.
@@ -211,15 +217,131 @@ Persistent state is managed by dedicated, crash-resilient file repositories impl
 
 ## 11. Screening Architecture: QUALIFY → ORDER → SHOW → LIMIT → RESULTS
 
-YOGI enforces a strict separation between user-facing simplicity and internal architectural stages ([ADR-002](decisions.md#adr-002-separation-of-filter-strategy-ranking-selection-and-results)):
+YOGI enforces a strict separation between user-facing simplicity and internal architectural stages ([ADR-002](decisions.md#adr-002-separation-of-filter-strategy-ranking-selection-and-results), [ADR-015](decisions.md#adr-015-ema-band-roc-filtering-and-multi-period-ranking-contract-separation)):
 
 $$\mathbf{QUALIFY} \longrightarrow \mathbf{ORDER} \longrightarrow \mathbf{SHOW} \longrightarrow \mathbf{LIMIT} \longrightarrow \mathbf{RESULTS}$$
 
-1. **QUALIFY (`FilterEngine`)**: Evaluates boolean qualification conditions against record metrics (`FilterGroupSpec`). Disqualifies non-matching securities. Answers: *"Does it qualify?"*
+### 11.1 Stage Responsibility Boundaries
+
+1. **QUALIFY (`FilterEngine`)**: Evaluates boolean qualification conditions against record metrics (`IFilterRule`, `FilterGroupSpec`). Disqualifies non-matching securities. Answers: *"Does it qualify?"*
+   - **EMA Filter**: Evaluates configured EMA conditions only.
+   - **Band Filter**: Evaluates a security's position relative to the configured band envelope only.
+   - **ROC Filter**: Evaluates configured rate-of-change conditions only.
+   - **Boundary Invariant**: Filter rules evaluate qualification only. Filters must **never** own, perform, or implement ranking.
 2. **ORDER (`RankingEngine`)**: Orders qualified records by specified ranking criteria (`ranking_metric`, `RankingOrder`). Injects dynamic cohort ranks (`RANK_{metric}`) and rank change (`RANK_CHG`). Answers: *"Where does it stand?"*
+   - **Boundary Invariant**: Ranking establishes relative ordering across eligible securities independently. Ranking must never change filter meaning, disqualify records, or force filter redesigns.
 3. **SHOW (`ResultAssembler`)**: Projects requested presentation columns and enriches records with metadata (`name`, `sector`, `grade`, `mcap`, `fno`, `instr`, `grp`). Answers: *"What should be displayed?"*
+   - **Boundary Invariant**: Projects columns and formats output payloads without filtering, ranking, or selection.
 4. **LIMIT (`SelectionEngine`)**: Applies top $N$ cutoffs and cohort survival limits (`RankCutoffSpec`). Answers: *"Does its rank qualify?"*
+   - **Boundary Invariant**: Evaluates rank thresholds and sustained duration without altering incoming ranking order.
 5. **RESULTS (`PipelineOrchestrator`)**: Packages records into an immutable `QueryResult` with execution timing and metadata.
+6. **Cockpit UI**: Collects user configuration and displays results; contains **zero** financial formulas, filtering logic, or ranking algorithms.
+
+### 11.2 EMA Filter Design & Interaction Specification
+
+The EMA filter enables multi-timeframe moving average qualification according to mentor-defined ergonomics and constraints:
+
+1. **Interaction Sequence**:
+   - **Step 1: Timeframe Selection FIRST**: The user selects the timeframe (`D`, `W`, `M`, `Q`, `H`, `Y`) before period controls become active.
+   - **Step 2: Period Selection**: The user specifies the first ($P_1$) and second ($P_2$) EMA periods.
+   - **Step 3: State Selection**: The user selects the desired categorical state (`UP`, `DOWN`, `UPCUT`, `DOWNCUT`).
+   - **Step 4: Add Condition**: The user can click an "Add Condition" control to append additional EMA conditions into the screening query.
+
+2. **Explicit Period Caps by Timeframe**:
+   | Timeframe | Code | Maximum Permitted Period | Basis / Rationale |
+   |---|---|---|---|
+   | **Daily** | `D` | **Max 31** | Approximately 1–1.5 months of trading sessions |
+   | **Weekly** | `W` | **Max 52** | Exactly 1 calendar year of weekly bars |
+   | **Monthly** | `M` | **Max 12** | Exactly 1 calendar year of monthly bars |
+   | **Quarterly** | `Q` | **Max 4** | Exactly 1 calendar year of quarterly bars |
+   | **Half-yearly** | `H` | **Max 2** | Exactly 1 calendar year of half-yearly bars |
+   | **Yearly** | `Y` | **Max 1** | Exactly 1 annual bar |
+
+   > [!IMPORTANT]
+   > **Product Constraint, Not Mathematical Limit**: These period caps are mentor-specified product constraints, **not** mathematical limitations of the exponential moving average. The Cockpit UI must update available period options dynamically whenever the timeframe changes, and actively clamp or invalidate out-of-range period inputs.
+
+3. **Desired EMA States & Intended Semantics**:
+   - `UP` (Green): First EMA > Second EMA ($EMA_{P1} > EMA_{P2}$).
+   - `DOWN` (Red): First EMA < Second EMA ($EMA_{P1} < EMA_{P2}$).
+   - `UPCUT` (Green): First EMA crosses above Second EMA on the current bar ($EMA_{P1, t} > EMA_{P2, t}$ and $EMA_{P1, t-1} \le EMA_{P2, t-1}$).
+   - `DOWNCUT` (Red): First EMA crosses below Second EMA on the current bar ($EMA_{P1, t} < EMA_{P2, t}$ and $EMA_{P1, t-1} \ge EMA_{P2, t-1}$).
+
+4. **Modular Architecture & Execution Model ([ADR-018](decisions.md#adr-018-modular-condition-evaluators--calculation-registry-dynamic-dispatch-for-filtering))**:
+   - **Contract-Based Condition Evaluators**: `FilterEngine` in `src/yogi/filter/engine.py` delegates domain-specific condition evaluations to modular `IConditionEvaluator` instances (`src/yogi/core/contracts/filter.py`). `EmaConditionEvaluator` in `src/yogi/filter/evaluators.py` owns EMA status checking and human-readable explanation generation.
+   - **Polymorphic Calculation Dispatch**: `PipelineOrchestrator` in `src/yogi/core/orchestration/pipeline.py` maintains zero module-level imports from concrete calculation packages. It dispatches dynamic indicator calculations via `RegistryHub.calculations` using `ICalcModule.supports_condition(rule.condition_type)` and `ICalcModule.calculate_dynamic(symbol, rule, context)`.
+   - **Open/Closed Extensibility**: New filter criteria (Bands, ROC, Ranking, RSI) are plugged in by registering an `IConditionEvaluator` with `FilterEngine` and implementing `calculate_dynamic` in the relevant `ICalcModule` without modifying Core pipeline or engine code.
+   - **Yearly Cap & Constraint Clarification**: The Yearly cap of `1` alongside $P_1 \ne P_2 \ge 1$ precludes 2-period crossover evaluation on Yearly bars, which is strictly preserved as a documented product constraint.
+   - **Preserved Fixed Metrics**: Legacy fixed 3/5 EMA fields (`EMA_D`..`EMA_Y`, `EMA_UP_COUNT`, legacy `UPCUT`) remain precomputed in `_dataset` for backward compatibility with table strips, stock detail drawer, and all 21 mentor presets.
+
+5. **Multiple Condition Composition**:
+   - Multiple conditions compose seamlessly via the existing `FilterGroupSpec` contract with `match="all"` (AND) or `match="any"` (OR) logic, with optional group-level negation (`is_negated`).
+
+
+### 11.3 Band Filter Design
+
+The Band filter evaluates security positions relative to authoritative band boundaries:
+
+1. **Configuration**: The user selects or configures the band envelope via the existing `IBandsRepository` and `calculate_band_envelope()` model.
+2. **Position Categories**:
+   - `Above`: Price is above the upper band ($Close > UpperBand$).
+   - `Within`: Price is within the band envelope ($LowerBand \le Close \le UpperBand$).
+   - `Below`: Price is below the lower band ($Close < LowerBand$).
+3. **Multi-Selection**: The user can select 1, 2, or all 3 position categories simultaneously (e.g., `Above` OR `Within`).
+4. **Qualification Only**: The Band filter evaluates qualification only (`QUALIFY`), reusing authoritative band calculations (`calculate_band_envelope()`, `BD_*`); it contains zero duplicate envelope mathematics.
+
+### 11.4 ROC Filter vs Multi-Period ROC Ranking
+
+The architecture strictly distinguishes boolean ROC qualification from ordinal ROC ranking:
+
+1. **ROC Filter (`QUALIFY`)**:
+   - Evaluates boolean rate-of-change conditions against single or multiple timeframes (e.g., `MROC > 0`, `DROC >= 2.5`).
+   - Answers strictly: *"Does this security meet the required rate-of-change threshold?"*
+
+2. **ROC Ranking (`ORDER`)**:
+   - Independently establishes relative performance standings across eligible securities.
+   - Answers strictly: *"Where does this qualifying security stand relative to its peers?"*
+
+3. **Mentor Ranking Capabilities**:
+   - **Standard Timeframe Rankings**: `D`, `W`, `M`, `Q`, `H`, `Y`.
+   - **Year-to-Date (`YTD`) Ranking**: Relative performance from the beginning of the current calendar year.
+   - **Extended 5-Year Ranking**: Trailing multi-year performance.
+   - **Combined 5-Year Average Ranking**: Multi-year aggregated ranking (*exact mathematical aggregation formula recorded as an open product decision*).
+   - **Multiple Selectable Periods**: The user may select multiple ranking periods simultaneously (e.g., 3-month and 3-year), preserving separate ranks and metric values per period (e.g., `RANK_ROC_3M` and `RANK_ROC_3Y`) in output records.
+   - **No Silent Merging**: Separate ranking periods must **never** be silently merged or collapsed into a single composite score without an explicitly documented aggregation formula.
+   - **Directional Sorting**:
+     - **Leaders**: Highest-first (`RankingOrder.DESCENDING`).
+     - **Backbenchers**: Lowest-first (`RankingOrder.ASCENDING`).
+
+### 11.5 Composition Examples & Ordering
+
+The decoupled architecture allows modular composition of filters and ranking:
+
+- **Example A (Multi-Filter + Single Ranking)**:
+  - **QUALIFY**: Weekly EMA UP (`W_EMA_UP == True`) AND Band Above (`M_BAND_POS == 'ABOVE'`) AND Daily ROC condition (`DROC > 0`).
+  - **ORDER**: Rank by 3-Month ROC descending (Leaders).
+  - **SHOW**: Project summary and momentum columns.
+- **Example B (Multi-Timeframe EMA Filter + Multi-Period Ranking & Cutoff)**:
+  - **QUALIFY**: Weekly EMA UP (`W_EMA_UP == True`) AND Daily EMA UPCUT (`D_EMA_STATE == 'UPCUT'`).
+  - **ORDER**: Rank by YTD ROC descending.
+  - **LIMIT**: Rank survival cutoff Top 50 (`RankCutoffSpec(rank_metric="RANK_YTD_ROC", max_rank=50)`).
+  - **SHOW**: Project summary and ranking columns.
+- **EMA-Based Ordering**:
+  - Mentor specification requires ordering securities in EMA `UP` / `UPCUT` states strongest-first, and `DOWN` / `DOWNCUT` states weakest-first (*exact strength metric recorded as an open product decision*).
+
+### 11.6 Architectural Decisions & Open Product Questions Ledger
+
+| Topic | Status | Architectural / Design Specification |
+|---|---|---|
+| **Pipeline Separation** | **DECIDED** | Strict `QUALIFY → ORDER → SHOW → LIMIT → RESULTS` execution order ([ADR-002](decisions.md#adr-002-separation-of-filter-strategy-ranking-selection-and-results), [ADR-015](decisions.md#adr-015-ema-band-roc-filtering-and-multi-period-ranking-contract-separation)). |
+| **EMA Configuration Sequence** | **DECIDED** | Timeframe FIRST (`D`, `W`, `M`, `Q`, `H`, `Y`) $\to$ Periods $(P_1, P_2)$ $\to$ State $\to$ Add Condition. |
+| **EMA Period Caps** | **DECIDED** | `D`: 31, `W`: 52, `M`: 12, `Q`: 4, `H`: 2, `Y`: 1 enforced as product constraints with dynamic UI validation. |
+| **EMA States** | **DECIDED** | `UP`, `DOWN`, `UPCUT`, `DOWNCUT` with explicit crossing semantics. |
+| **Band Position Filter** | **DECIDED** | `Above`, `Within`, `Below` with multi-select support reusing `calculate_band_envelope()`. |
+| **ROC Filter vs Ranking** | **DECIDED** | ROC Filter evaluates qualification only; ROC Ranking orders independently. Separate periods preserve separate ranks. |
+| **Ranking Directions** | **DECIDED** | Leaders (highest-first) and Backbenchers (lowest-first). |
+| **Combined 5-Year Average Formula** | **OPEN DECISION** | Exact aggregation formula (arithmetic mean $\frac{1}{5}\sum Y_i$, 5Y CAGR, or 5Y rolling cumulative ROC) pending mentor direction. |
+| **EMA Strength Ordering Metric** | **OPEN DECISION** | Quantitative metric for strongest-first / weakest-first EMA ordering (percentage spread $\frac{EMA_{fast} - EMA_{slow}}{EMA_{slow}} \times 100$, raw delta, or spread slope) pending mentor direction. |
+| **Dynamic EMA Calculation Architecture** | **OPEN DECISION** | Evaluation model for arbitrary $(P_1, P_2)$ EMAs (precomputed at dataset build vs calculated on-demand per screening query in `PipelineOrchestrator`) to be determined during implementation design. |
 
 ---
 

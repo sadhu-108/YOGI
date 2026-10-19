@@ -254,6 +254,7 @@ class MockTimeframeEngine(ITimeframeEngine):
         daily_bars: Sequence[MarketBar],
         timeframes: Optional[Sequence[Union[str, Timeframe]]] = None,
         as_of: Optional[datetime] = None,
+        half_year_policy: Optional[str] = None,
     ) -> MarketContext:
         self.recorded_calls.append(f"build_context({symbol})")
         tfs = timeframes or ("D", "W", "M", "Q", "H", "Y")
@@ -813,6 +814,362 @@ def test_orchestrator_invokes_injected_timeframe_engine():
     orchestrator.build_dataset(config)
     assert len(engine.recorded_calls) == 1
     assert engine.recorded_calls[0] == "build_context(RELIANCE)"
+
+
+def test_orchestrator_contains_no_concrete_calculation_imports():
+    """Verify that PipelineOrchestrator has zero module-level dependency on concrete calculation packages."""
+    import inspect
+    import yogi.core.orchestration.pipeline as pipe_mod
+
+    source = inspect.getsource(pipe_mod)
+
+    # Must NOT import concrete calculation functions
+    assert "calculate_dynamic_ema_signal" not in source
+    assert "from yogi.calculation" not in source
+
+
+def test_dynamic_condition_polymorphic_registry_dispatch():
+    """Verify PipelineOrchestrator resolves dynamic calculations polymorphically via RegistryHub.calculations."""
+    class CustomDynamicCalc(ICalcModule):
+        name = "custom_dynamic"
+
+        def __init__(self) -> None:
+            self.dynamic_calls = []
+
+        def calculate(self, symbol: str, context: CalculationContext) -> CalculationResult:
+            return CalculationResult(symbol=symbol, module_name=self.name, metrics={})
+
+        def supports_condition(self, condition_type: str) -> bool:
+            return condition_type == "ema"
+
+        def calculate_dynamic(self, symbol: str, rule: Any, context: CalculationContext) -> Any:
+            self.dynamic_calls.append((symbol, rule))
+            return {
+                "state": "UP",
+                "is_up": True,
+                "is_down": False,
+                "is_upcut": False,
+                "is_downcut": False,
+            }
+
+    custom_calc = CustomDynamicCalc()
+    hub = RegistryHub()
+    hub.calculations.register("custom_dynamic", custom_calc)
+
+    bar = make_bar(100.0)
+    orchestrator = PipelineOrchestrator(
+        registry=hub,
+        filter_rule=MockFilterRule(matching_symbols=["RELIANCE"]),
+        ranking_rule=MockRankingRule(ranks={"RELIANCE": 1}),
+        selection_rule=MockSelectionRule(selected_symbols=["RELIANCE"]),
+        result_assembler=MockResultAssembler(),
+        timeframe_engine=MockTimeframeEngine(),
+        bars_cache={"RELIANCE": [bar]},
+    )
+
+    rule = FilterRuleSpec(
+        field="EMA_D_3_5",
+        condition_type="ema",
+        timeframe="D",
+        p1=3,
+        p2=5,
+        state="UP",
+    )
+    query = ScreeningQuery(filter_group=FilterGroupSpec(rules=[rule]))
+    records = {"RELIANCE": {"symbol": "RELIANCE", "exchange": "NSE"}}
+
+    payload = orchestrator.execute_screen(query=query, records=records)
+
+    assert len(custom_calc.dynamic_calls) == 1
+    assert custom_calc.dynamic_calls[0][0] == "RELIANCE"
+
+
+def test_fifth_filter_extensibility_without_pipeline_or_engine_modification():
+    """Verify that a hypothetical 5th filter (e.g., RSI) can be added via contracts without modifying Pipeline or FilterEngine."""
+    from yogi.core.contracts.filter import IConditionEvaluator
+    from yogi.filter.engine import FilterEngine
+
+    # 1. Custom Calculation Module supporting "rsi"
+    class RsiCalcModule(ICalcModule):
+        name = "rsi_calc"
+
+        def calculate(self, symbol: str, context: CalculationContext) -> CalculationResult:
+            return CalculationResult(symbol=symbol, module_name=self.name, metrics={})
+
+        def supports_condition(self, condition_type: str) -> bool:
+            return condition_type == "rsi"
+
+        def calculate_dynamic(self, symbol: str, rule: Any, context: CalculationContext) -> Any:
+            return {"rsi_value": 25.0, "is_oversold": True}
+
+    # 2. Custom Condition Evaluator for "rsi"
+    class RsiConditionEvaluator(IConditionEvaluator):
+        def evaluate(self, record: Mapping[str, Any], rule: FilterRuleSpec) -> bool:
+            val = record.get(rule.field)
+            if isinstance(val, dict):
+                return bool(val.get("is_oversold", False))
+            return False
+
+        def describe(self, rule: FilterRuleSpec) -> str:
+            return f"RSI({rule.params.get('period', 14)}) < {rule.params.get('threshold', 30)}"
+
+    # 3. Assemble components via composition
+    hub = RegistryHub()
+    hub.calculations.register("rsi_calc", RsiCalcModule())
+
+    filter_engine = FilterEngine()
+    filter_engine.register_evaluator("rsi", RsiConditionEvaluator())
+
+    bar = make_bar(100.0)
+    orchestrator = PipelineOrchestrator(
+        registry=hub,
+        filter_rule=filter_engine,
+        ranking_rule=MockRankingRule(ranks={"RELIANCE": 1}),
+        selection_rule=MockSelectionRule(selected_symbols=["RELIANCE"]),
+        result_assembler=MockResultAssembler(),
+        timeframe_engine=MockTimeframeEngine(),
+        bars_cache={"RELIANCE": [bar], "TCS": [bar]},
+    )
+
+    # 4. Screening query with the 5th filter rule
+    rsi_rule = FilterRuleSpec(
+        field="RSI_14",
+        condition_type="rsi",
+        params={"period": 14, "threshold": 30},
+    )
+    query = ScreeningQuery(filter_group=FilterGroupSpec(rules=[rsi_rule]))
+    records = {
+        "RELIANCE": {"symbol": "RELIANCE", "exchange": "NSE"},
+        "TCS": {"symbol": "TCS", "exchange": "NSE"},
+    }
+
+    payload = orchestrator.execute_screen(query=query, records=records)
+
+    # Both symbols evaluated via the new condition evaluator
+    assert payload.qualified_count == 2
+    assert "RSI(14) < 30" in payload.metadata.get("filter_explanation", "")
+
+
+# ---------------------------------------------------------------------------
+# Surgical Fix 4/5 Regression Tests (EMA-AUDIT-004 and EMA-AUDIT-005)
+# ---------------------------------------------------------------------------
+
+
+def test_unresolved_calculation_module_raises_explicit_value_error():
+    """Verify that an unresolvable calculation module raises ValueError, avoiding silent qualification skips."""
+    hub = RegistryHub()
+    orchestrator = PipelineOrchestrator(
+        registry=hub,
+        filter_rule=MockFilterRule(matching_symbols=[]),
+        timeframe_engine=MockTimeframeEngine(),
+        bars_cache={},
+    )
+    unsupported_rule = FilterRuleSpec(
+        field="CUSTOM_FIELD",
+        condition_type="unregistered_indicator",
+        timeframe="D",
+        params={"p1": 10},
+    )
+    query = ScreeningQuery(filter_group=FilterGroupSpec(rules=[unsupported_rule]))
+    records = {"RELIANCE": {"symbol": "RELIANCE", "exchange": "NSE"}}
+
+    with pytest.raises(ValueError) as exc_info:
+        orchestrator.execute_screen(query=query, records=records)
+
+    assert "No calculation module registered supporting condition_type 'unregistered_indicator'" in str(exc_info.value)
+
+
+def test_calculation_exception_is_not_swallowed_or_converted():
+    """Verify that an exception inside calculate_dynamic is raised rather than swallowed into a non-match."""
+    class FailingCalcModule(ICalcModule):
+        name = "failing_calc"
+
+        def calculate(self, symbol: str, context: CalculationContext) -> CalculationResult:
+            return CalculationResult(symbol=symbol, module_name=self.name, metrics={})
+
+        def supports_condition(self, condition_type: str) -> bool:
+            return condition_type == "buggy"
+
+        def calculate_dynamic(self, symbol: str, rule: Any, context: CalculationContext) -> Any:
+            raise RuntimeError("Math calculation exploded unexpectedly")
+
+    hub = RegistryHub()
+    hub.calculations.register("failing_calc", FailingCalcModule())
+
+    bar = make_bar(100.0)
+    orchestrator = PipelineOrchestrator(
+        registry=hub,
+        filter_rule=MockFilterRule(matching_symbols=[]),
+        timeframe_engine=MockTimeframeEngine(),
+        bars_cache={"RELIANCE": [bar]},
+    )
+    rule = FilterRuleSpec(field="BUGGY_D", condition_type="buggy", timeframe="D")
+    query = ScreeningQuery(filter_group=FilterGroupSpec(rules=[rule]))
+    records = {"RELIANCE": {"symbol": "RELIANCE", "exchange": "NSE"}}
+
+    with pytest.raises(RuntimeError) as exc_info:
+        orchestrator.execute_screen(query=query, records=records)
+
+    assert "Math calculation exploded unexpectedly" in str(exc_info.value)
+
+
+def test_missing_market_data_does_not_fabricate_result_and_does_not_qualify_under_negation():
+    """Verify that missing market data produces None (no fabricated dict) and does NOT qualify under negation."""
+    from yogi.filter.engine import FilterEngine
+
+    hub = RegistryHub()
+    # Register real TrendCalculator
+    from yogi.calculation.trend.calculator import TrendCalculator
+    hub.calculations.register("trend", TrendCalculator())
+
+    filter_engine = FilterEngine()
+    rising_bars = [make_bar(100.0 + i) for i in range(40)]
+
+    # RELIANCE has bars (rising -> EMA UP).
+    # TCS has missing market data (no bars in cache).
+    orchestrator = PipelineOrchestrator(
+        registry=hub,
+        filter_rule=filter_engine,
+        ranking_rule=MockRankingRule(ranks={"RELIANCE": 1, "TCS": 2}),
+        selection_rule=MockSelectionRule(selected_symbols=["RELIANCE", "TCS"]),
+        result_assembler=MockResultAssembler(),
+        timeframe_engine=MockTimeframeEngine(),
+        bars_cache={"RELIANCE": rising_bars},  # TCS is missing from cache!
+    )
+
+    # 1. Non-negated: EMA D(3,5) == UP
+    rule_pos = FilterRuleSpec(
+        field="EMA_D_3_5",
+        condition_type="ema",
+        timeframe="D",
+        p1=3,
+        p2=5,
+        state="UP",
+        is_negated=False,
+    )
+    query_pos = ScreeningQuery(filter_group=FilterGroupSpec(rules=[rule_pos]))
+    records = {
+        "RELIANCE": {"symbol": "RELIANCE", "exchange": "NSE"},
+        "TCS": {"symbol": "TCS", "exchange": "NSE"},
+    }
+
+    payload_pos = orchestrator.execute_screen(query=query_pos, records=records)
+    # RELIANCE is UP (qualifies). TCS has missing data (does NOT qualify).
+    assert "RELIANCE" in payload_pos.rows[0]["symbol"]
+    assert payload_pos.qualified_count == 1
+
+    # 2. Negated: NOT (EMA D(3,5) == UP)
+    # RELIANCE is UP -> NOT UP is False.
+    # TCS has missing data -> unevaluated -> MUST NOT qualify under negation!
+    rule_neg = FilterRuleSpec(
+        field="EMA_D_3_5",
+        condition_type="ema",
+        timeframe="D",
+        p1=3,
+        p2=5,
+        state="UP",
+        is_negated=True,
+    )
+    query_neg = ScreeningQuery(filter_group=FilterGroupSpec(rules=[rule_neg]))
+    payload_neg = orchestrator.execute_screen(query=query_neg, records=records)
+
+    # Neither should qualify: RELIANCE is UP, and TCS has missing data!
+    assert payload_neg.qualified_count == 0
+
+
+def test_insufficient_history_does_not_qualify_under_negation():
+    """Verify that insufficient history ('na' state) does not qualify under negation."""
+    from yogi.filter.engine import FilterEngine
+    from yogi.calculation.trend.calculator import TrendCalculator
+
+    hub = RegistryHub()
+    hub.calculations.register("trend", TrendCalculator())
+
+    filter_engine = FilterEngine()
+    # 1 bar is insufficient for EMA(3,5) calculation (min_required is 2)
+    scant_bars = [make_bar(100.0)]
+
+    orchestrator = PipelineOrchestrator(
+        registry=hub,
+        filter_rule=filter_engine,
+        ranking_rule=MockRankingRule(ranks={"INSUF": 1}),
+        selection_rule=MockSelectionRule(selected_symbols=["INSUF"]),
+        result_assembler=MockResultAssembler(),
+        timeframe_engine=MockTimeframeEngine(),
+        bars_cache={"INSUF": scant_bars},
+    )
+
+    # Negated rule: NOT (EMA D(3,5) == UP)
+    rule_neg = FilterRuleSpec(
+        field="EMA_D_3_5",
+        condition_type="ema",
+        timeframe="D",
+        p1=3,
+        p2=5,
+        state="UP",
+        is_negated=True,
+    )
+    query = ScreeningQuery(filter_group=FilterGroupSpec(rules=[rule_neg]))
+    records = {"INSUF": {"symbol": "INSUF", "exchange": "NSE"}}
+
+    payload = orchestrator.execute_screen(query=query, records=records)
+    # INSUF has state 'na' which must NOT satisfy NOT UP!
+    assert payload.qualified_count == 0
+
+
+def test_generic_progress_reporting_without_ema_hardcoding():
+    """Verify progress reporting works generically for non-EMA calculation modules."""
+    class MockRocModule(ICalcModule):
+        name = "mock_roc"
+
+        def calculate(self, symbol: str, context: CalculationContext) -> CalculationResult:
+            return CalculationResult(symbol=symbol, module_name=self.name, metrics={})
+
+        def supports_condition(self, condition_type: str) -> bool:
+            return condition_type == "roc"
+
+        def calculate_dynamic(self, symbol: str, rule: Any, context: CalculationContext) -> Any:
+            return {"roc": 15.0}
+
+    hub = RegistryHub()
+    hub.calculations.register("mock_roc", MockRocModule())
+
+    bar = make_bar(100.0)
+    orchestrator = PipelineOrchestrator(
+        registry=hub,
+        filter_rule=MockFilterRule(matching_symbols=["SYM1"]),
+        ranking_rule=MockRankingRule(ranks={"SYM1": 1}),
+        selection_rule=MockSelectionRule(selected_symbols=["SYM1"]),
+        result_assembler=MockResultAssembler(),
+        timeframe_engine=MockTimeframeEngine(),
+        bars_cache={"SYM1": [bar]},
+    )
+
+    progress_events = []
+    def on_progress(pct: float, stage: str, msg: str, curr: int, tot: int) -> None:
+        progress_events.append((stage, msg))
+
+    roc_rule = FilterRuleSpec(
+        field="ROC_D_21",
+        condition_type="roc",
+        timeframe="D",
+        p1=21,
+    )
+    query = ScreeningQuery(filter_group=FilterGroupSpec(rules=[roc_rule]))
+    records = {"SYM1": {"symbol": "SYM1", "exchange": "NSE"}}
+
+    orchestrator.execute_screen(query=query, records=records, progress_callback=on_progress)
+
+    # Check progress stages
+    stages = [ev[0] for ev in progress_events]
+    messages = [ev[1] for ev in progress_events]
+
+    assert "calculating_roc" in stages
+    assert "calculating_emas" not in stages
+    assert any("ROC D(21)" in msg for msg in messages)
+    assert not any("EMA" in msg for msg in messages)
+
+
 
 
 

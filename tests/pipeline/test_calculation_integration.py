@@ -105,6 +105,9 @@ def test_build_dataset_all_four_pillars(configured_orchestrator):
     assert "DROC" in rec1
     assert "M_CUR" in rec1
     assert "EMA_D" in rec1
+    assert "EMA_UP_COUNT" in rec1
+    assert isinstance(rec1["EMA_UP_COUNT"], int)
+    assert 0 <= rec1["EMA_UP_COUNT"] <= 6
     assert "CAGR_1" in rec1
     assert "SUSPECT" in rec1
 

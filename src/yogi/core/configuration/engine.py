@@ -20,3 +20,4 @@ class EngineConfig:
     symbol_limit: Optional[int] = None
     symbols: Optional[Sequence[str]] = None
     provider_options: Mapping[str, Any] = field(default_factory=dict)
+    half_year_policy: str = "prototype"

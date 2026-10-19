@@ -96,6 +96,67 @@ class TestNormalizeYFinanceBars:
         assert bars[1].close == 30.0
         assert bars[2].close == 50.0
 
+    def test_multiindex_price_level_0_ticker_level_1(self):
+        """Verify modern yfinance default MultiIndex (Price, Ticker) extracts accurate OHLCV."""
+        dates = pd.date_range("2024-01-01", periods=3, freq="D")
+        cols = pd.MultiIndex.from_tuples([
+            ("Close", "RELIANCE.NS"),
+            ("Open", "RELIANCE.NS"),
+            ("High", "RELIANCE.NS"),
+            ("Low", "RELIANCE.NS"),
+            ("Volume", "RELIANCE.NS"),
+        ])
+        df = pd.DataFrame([
+            [2500.0, 2490.0, 2510.0, 2480.0, 10000.0],
+            [2520.0, 2505.0, 2530.0, 2500.0, 12000.0],
+            [2515.0, 2520.0, 2525.0, 2510.0, 8000.0],
+        ], index=dates, columns=cols)
+
+        bars = normalize_yfinance_bars(df)
+        assert len(bars) == 3
+        assert all(isinstance(b, MarketBar) for b in bars)
+        assert bars[0].timestamp == datetime(2024, 1, 1)
+        assert bars[0].open == 2490.0
+        assert bars[0].high == 2510.0
+        assert bars[0].low == 2480.0
+        assert bars[0].close == 2500.0
+        assert bars[0].volume == 10000.0
+        assert bars[2].close == 2515.0
+
+    def test_multiindex_ticker_level_0_price_level_1(self):
+        """Verify inverted MultiIndex (Ticker, Price) extracts accurate OHLCV."""
+        dates = pd.date_range("2024-01-01", periods=2, freq="D")
+        cols = pd.MultiIndex.from_tuples([
+            ("TCS.NS", "Open"),
+            ("TCS.NS", "High"),
+            ("TCS.NS", "Low"),
+            ("TCS.NS", "Close"),
+            ("TCS.NS", "Volume"),
+        ])
+        df = pd.DataFrame([
+            [3500.0, 3550.0, 3490.0, 3540.0, 50000.0],
+            [3545.0, 3560.0, 3520.0, 3530.0, 45000.0],
+        ], index=dates, columns=cols)
+
+        bars = normalize_yfinance_bars(df)
+        assert len(bars) == 2
+        assert bars[0].open == 3500.0
+        assert bars[0].high == 3550.0
+        assert bars[0].low == 3490.0
+        assert bars[0].close == 3540.0
+        assert bars[0].volume == 50000.0
+        assert bars[1].close == 3530.0
+
+    def test_multiindex_without_price_fields_returns_empty(self):
+        """Verify MultiIndex with no recognizable price fields returns empty tuple."""
+        dates = pd.date_range("2024-01-01", periods=2, freq="D")
+        cols = pd.MultiIndex.from_tuples([
+            ("Sector", "RELIANCE.NS"),
+            ("Industry", "RELIANCE.NS"),
+        ])
+        df = pd.DataFrame([[1, 2], [3, 4]], index=dates, columns=cols)
+        assert normalize_yfinance_bars(df) == ()
+
 
 class TestNormalizeYFinanceBatch:
     def test_multiindex_metric_first(self):

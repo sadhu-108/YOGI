@@ -1,6 +1,7 @@
 """Cockpit Application Factory — FastAPI ASGI application instantiation, lifespan, and asset mounting."""
 
 import logging
+import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import AsyncGenerator, Optional
@@ -20,13 +21,20 @@ def create_app(
     app_state: Optional[AppState] = None,
     static_dir: Optional[Path] = None,
     auto_refresh: bool = False,
+    autoload_cache: Optional[bool] = None,
+    auto_background: Optional[bool] = None,
 ) -> FastAPI:
     """Instantiate and configure the YOGI Cockpit FastAPI application."""
-    state = app_state if app_state is not None else AppState()
+    is_testing = bool(os.environ.get("PYTEST_CURRENT_TEST"))
+    should_autoload = autoload_cache if autoload_cache is not None else not is_testing
+    should_autobackground = auto_background if auto_background is not None else not is_testing
+
+    state = app_state if app_state is not None else AppState(autoload_cache=should_autoload)
+    if should_autoload and not state.dataset:
+        state.load_persisted_cache()
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
-        # Pre-warm dataset at startup if requested and currently empty
         if auto_refresh and not state.dataset:
             try:
                 await state.refresh()
@@ -37,7 +45,12 @@ def create_app(
                     exc,
                     exc_info=True,
                 )
+        elif should_autobackground and not state.dataset and not state.is_demo:
+            # Fast startup: If no dataset is active and live provider is configured, trigger initial background rebuild
+            logger.info("Lifespan: No active dataset found. Triggering initial background rebuild...")
+            state.start_background_rebuild()
         yield
+
 
     app = FastAPI(
         title="YOGI Investing Cockpit",

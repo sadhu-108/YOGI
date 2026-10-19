@@ -302,3 +302,98 @@ def test_no_global_singleton_leakage():
     hub1.providers.register("dummy", DummyProvider())
     assert hub1.providers.has("dummy") is True
     assert hub2.providers.has("dummy") is False
+
+
+def test_registry_allow_override_replaces_existing_instance():
+    """Test that register(allow_override=True) and override() cleanly replace instances."""
+    registry: CapabilityRegistry[str] = CapabilityRegistry("strings")
+    registry.register("key1", "initial")
+    assert registry.get("key1") == "initial"
+
+    # Without allow_override -> raises DuplicateRegistrationError
+    with pytest.raises(DuplicateRegistrationError):
+        registry.register("key1", "second")
+
+    # With allow_override=True -> replaces instance
+    registry.register("key1", "second", allow_override=True)
+    assert registry.get("key1") == "second"
+
+    # Using override() convenience method
+    registry.override("key1", "third")
+    assert registry.get("key1") == "third"
+
+
+def test_registry_override_replaces_lazy_factory():
+    """Test that override() replaces an uninvoked lazy factory without executing it."""
+    factory_invoked = False
+
+    def factory():
+        nonlocal factory_invoked
+        factory_invoked = True
+        return "from_factory"
+
+    registry: CapabilityRegistry[str] = CapabilityRegistry("strings")
+    registry.register_factory("key1", factory)
+    assert registry.has("key1") is True
+
+    # Override with instance
+    registry.override("key1", "overridden_value")
+    assert registry.get("key1") == "overridden_value"
+    assert factory_invoked is False  # Factory was never invoked!
+
+
+def test_registry_override_factory_replaces_existing_instance():
+    """Test that override_factory() replaces a cached instance with a new factory."""
+    registry: CapabilityRegistry[str] = CapabilityRegistry("strings")
+    registry.register("key1", "instance_val")
+    assert registry.get("key1") == "instance_val"
+
+    registry.override_factory("key1", lambda: "new_factory_val")
+    assert registry.get("key1") == "new_factory_val"
+
+
+def test_registry_unregister():
+    """Test that unregister() cleanly removes instances and factories."""
+    registry: CapabilityRegistry[str] = CapabilityRegistry("strings")
+    registry.register("inst", "val1")
+    registry.register_factory("fact", lambda: "val2")
+
+    assert registry.has("inst") is True
+    assert registry.has("fact") is True
+
+    registry.unregister("inst")
+    assert registry.has("inst") is False
+    assert "inst" not in registry.list_keys()
+
+    registry.unregister("fact")
+    assert registry.has("fact") is False
+    assert "fact" not in registry.list_keys()
+
+    # Unregistering nonexistent key does not raise
+    registry.unregister("nonexistent")
+
+
+def test_create_default_registry_hub_structure():
+    """Test that create_default_registry_hub registers all required default capabilities."""
+    from yogi.core.registry import create_default_registry_hub
+
+    hub = create_default_registry_hub()
+
+    # Calculations
+    assert set(hub.calculations.list_keys()) == {"bands", "candles", "impulse", "trend", "velocity"}
+    # Providers
+    assert set(hub.providers.list_keys()) == {"demo", "yfinance"}
+    # Bands repositories
+    assert set(hub.bands.list_keys()) == {"csv", "demo", "excel"}
+
+    # Resolving demo provider does not instantiate yfinance
+    assert "yfinance" not in hub.providers._instances
+    demo_p = hub.providers.get("demo")
+    assert demo_p.name == "demo"
+    assert "yfinance" not in hub.providers._instances
+
+    # Resolving csv and excel returns the shared bands repo instance
+    csv_bands = hub.bands.get("csv")
+    excel_bands = hub.bands.get("excel")
+    assert csv_bands is excel_bands
+

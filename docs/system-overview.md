@@ -65,11 +65,11 @@ Results Assembly (IResultAssembler) → Cockpit UI / Excel / JSON
 All contracts reside in `src/yogi/core/contracts/` and are frozen:
 - `market_data.py`: `MarketBar`, `TickData`, `MarketContext`, `Timeframe`, `IMarketDataProvider`, `ITickDataProvider`.
 - `provider.py`: `IDataProvider`, `ProviderHealth`.
-- `timeframe.py`: `ITimeframeSynthesizer`.
-- `calculation.py`: `ICalcModule`, `CalculationContext`, `CalculationResult`.
+- `timeframe.py`: `ITimeframeEngine`.
+- `calculation.py`: `ICalcModule` (extended with `supports_condition` and `calculate_dynamic`), `CalculationContext`, `CalculationResult`.
 - `bands.py`: `IBandsRepository`, `BandEntry`, `BandAuditEntry`, `BandBackupInfo`, `BAND_TIMEFRAMES`.
 - `security.py`: `SecurityMetadata`, `InstrumentType`, `TradingGroup`, `ISecurityMetadataRepository`.
-- `filter.py`: `IFilterRule`, `FilterGroupSpec`, `FilterRuleSpec`, `IFilterEngine`.
+- `filter.py`: `IFilterRule`, `IConditionEvaluator` (modular condition evaluators), `FilterGroupSpec`, `FilterRuleSpec` (with `params`), `FilterOperator`.
 - `ranking.py`: `IRankingRule`, `RankingOrder`, `RankingMethod`, `IRankingEngine`.
 - `selection.py`: `ISelectionRule`, `RankCutoffSpec`, `SelectionMode`, `ISelectionEngine`.
 - `strategy.py`: `IStrategy`, `StrategySpec`, `IStrategyEngine`.

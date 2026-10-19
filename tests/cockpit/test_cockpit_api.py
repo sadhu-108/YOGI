@@ -718,7 +718,10 @@ def test_asgi_export_csv(asgi_client):
 
 def test_asgi_service_unavailable_503(test_app_state):
     """Verify 503 is returned when optional bands or provider capabilities are not configured."""
-    empty_state = AppState(initial_dataset={"TEST": {"symbol": "TEST", "price": 10.0}})
+    empty_state = AppState(
+        config=EngineConfig(provider="unconfigured", bands_repository="unconfigured"),
+        initial_dataset={"TEST": {"symbol": "TEST", "price": 10.0}},
+    )
     app = create_app(app_state=empty_state, auto_refresh=False)
     client = AsgiTestClient(app)
 

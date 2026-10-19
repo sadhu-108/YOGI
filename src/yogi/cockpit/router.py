@@ -34,11 +34,15 @@ from yogi.cockpit.schemas import (
     RaceResponseOut,
     RankCutoffIn,
     RefreshRequestIn,
+    ScreenCancelOut,
+    ScreenProgressOut,
     ScreenRequestIn,
     StockDetailPanelOut,
     StrategyDetailOut,
     StrategyRunIn,
     StrategySummaryOut,
+    SystemSettingsOut,
+    SystemSettingsUpdateIn,
     SystemStatusOut,
     UserPresetIn,
     UserPresetOut,
@@ -46,6 +50,7 @@ from yogi.cockpit.schemas import (
 )
 from yogi.cockpit.state import AppState, ColumnProjectingAssembler
 from yogi.core.configuration.query import ScreeningQuery
+from yogi.core.contracts.filter import ScreeningCancelledError
 from yogi.core.contracts.ranking import RankingOrder
 from yogi.core.contracts.results import ExportFormat
 from yogi.data.providers.exceptions import (
@@ -78,14 +83,43 @@ router = APIRouter(prefix="/api", tags=["Cockpit API"])
 @router.get("/status", response_model=SystemStatusOut)
 def get_system_status(app_state: AppState = Depends(get_app_state)) -> SystemStatusOut:
     """Return health status, universe size, and materialized dataset timestamp."""
+    status_str = "BUILDING" if app_state.is_building else "READY"
+
     return SystemStatusOut(
-        status="READY",
+        status=status_str,
         universe_count=len(app_state.dataset),
         last_built_at=app_state.last_built_at.isoformat() if app_state.last_built_at else None,
         exchange=app_state.config.exchange,
         provider=app_state.config.provider,
         is_demo=app_state.is_demo,
+        half_year_policy=app_state.half_year_policy,
+        is_cached=app_state.is_cached,
+        build_status=app_state.build_status,
+        progress=app_state.build_progress,
+        progress_stage=app_state.build_stage,
+        error=app_state.build_error,
     )
+
+
+@router.get("/settings", response_model=SystemSettingsOut)
+def get_settings(app_state: AppState = Depends(get_app_state)) -> SystemSettingsOut:
+    """Retrieve active system configuration settings."""
+    return SystemSettingsOut(half_year_policy=app_state.half_year_policy)
+
+
+@router.post("/settings", response_model=SystemSettingsOut)
+async def update_settings(
+    payload: SystemSettingsUpdateIn,
+    app_state: AppState = Depends(get_app_state),
+) -> SystemSettingsOut:
+    """Update and persist system configuration settings."""
+    if payload.half_year_policy not in ("prototype", "calendar"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid half_year_policy '{payload.half_year_policy}'. Must be 'prototype' or 'calendar'.",
+        )
+    policy = await app_state.set_half_year_policy(payload.half_year_policy)
+    return SystemSettingsOut(half_year_policy=policy)
 
 
 @router.post("/dataset/refresh", response_model=SystemStatusOut)
@@ -97,8 +131,51 @@ async def refresh_dataset(
     symbols = req.symbols if req else None
     symbol_limit = req.symbol_limit if req else None
     provider = req.provider if req else None
+    is_background = req.background if (req and req.background is not None) else False
+    force_refresh = req.force_refresh_bars if req else False
+
+    if is_background:
+        if app_state.is_building:
+            return SystemStatusOut(
+                status="BUILDING",
+                universe_count=len(app_state.dataset),
+                last_built_at=app_state.last_built_at.isoformat() if app_state.last_built_at else None,
+                exchange=app_state.config.exchange,
+                provider=provider or app_state.config.provider,
+                is_demo=app_state.is_demo,
+                half_year_policy=app_state.half_year_policy,
+                is_cached=app_state.is_cached,
+                build_status="BUILDING",
+                progress=app_state.build_progress,
+                progress_stage="Rebuild already in progress",
+            )
+        app_state.start_background_rebuild(
+            symbols=symbols,
+            symbol_limit=symbol_limit,
+            provider=provider,
+            force_refresh_bars=force_refresh,
+        )
+        return SystemStatusOut(
+            status="BUILDING",
+            universe_count=len(app_state.dataset),
+            last_built_at=app_state.last_built_at.isoformat() if app_state.last_built_at else None,
+            exchange=app_state.config.exchange,
+            provider=provider or app_state.config.provider,
+            is_demo=app_state.is_demo,
+            half_year_policy=app_state.half_year_policy,
+            is_cached=app_state.is_cached,
+            build_status="BUILDING",
+            progress=0.0,
+            progress_stage="Background rebuild initiated",
+        )
+
     try:
-        await app_state.refresh(symbols=symbols, symbol_limit=symbol_limit, provider=provider)
+        await app_state.refresh(
+            symbols=symbols,
+            symbol_limit=symbol_limit,
+            provider=provider,
+            force_refresh_bars=force_refresh,
+        )
     except Exception as exc:
         logger.exception("Failed to refresh dataset: %s", exc)
         raise HTTPException(
@@ -112,7 +189,13 @@ async def refresh_dataset(
         exchange=app_state.config.exchange,
         provider=app_state.config.provider,
         is_demo=app_state.is_demo,
+        half_year_policy=app_state.half_year_policy,
+        is_cached=app_state.is_cached,
+        build_status=app_state.build_status,
+        progress=app_state.build_progress,
+        progress_stage=app_state.build_stage,
     )
+
 
 
 @router.get("/table", response_model=QueryResultOut)
@@ -133,6 +216,19 @@ def run_screen(
     app_state: AppState = Depends(get_app_state),
 ) -> QueryResultOut:
     """Execute dynamic screening intent adhering strictly to QUALIFY -> ORDER -> SHOW -> LIMIT -> RESULTS."""
+    request_id = req.request_id
+    if request_id:
+        app_state.register_screening_task(request_id, total_count=len(app_state.dataset))
+
+    def cancel_check() -> bool:
+        if not request_id:
+            return False
+        return app_state.is_screening_cancelled(request_id)
+
+    def progress_cb(pct: float, stage: str, msg: str, curr: int, tot: int) -> None:
+        if request_id:
+            app_state.update_screening_progress(request_id, pct, stage, msg, curr, tot)
+
     # 1. Translate screening fields into frozen ScreeningQuery (NO columns)
     query = to_screening_query(
         filter_group=req.filter_group,
@@ -149,14 +245,72 @@ def run_screen(
         else app_state.assembler
     )
 
-    # 3. Execute canonical pipeline
-    payload = app_state.orchestrator.execute_screen(
-        query=query,
-        records=app_state.dataset,
-        result_assembler=assembler,
+    # 3. Execute canonical pipeline with cancel and progress callbacks
+    try:
+        payload = app_state.orchestrator.execute_screen(
+            query=query,
+            records=app_state.dataset,
+            result_assembler=assembler,
+            bars_cache=app_state.bars_cache,
+            cancel_check=cancel_check if request_id else None,
+            progress_callback=progress_cb if request_id else None,
+        )
+        if request_id:
+            app_state.complete_screening_task(request_id)
+        return QueryResultOut.from_core(payload)
+    except ScreeningCancelledError as cancel_err:
+        if request_id:
+            app_state.cancel_screening_task(request_id)
+        raise HTTPException(
+            status_code=499,
+            detail=str(cancel_err) or "Screening was cancelled by the user.",
+        )
+    except Exception as exc:
+        if request_id:
+            app_state.fail_screening_task(request_id, str(exc))
+        raise
+
+
+@router.get("/screen/progress/{request_id}", response_model=ScreenProgressOut)
+def get_screen_progress(
+    request_id: str,
+    app_state: AppState = Depends(get_app_state),
+) -> ScreenProgressOut:
+    """Return real-time progress for an active or completed screening operation."""
+    task = app_state.get_screening_task(request_id)
+    if task is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Screening request '{request_id}' not found.",
+        )
+    return ScreenProgressOut(
+        request_id=task.request_id,
+        status=task.status,
+        progress=task.progress,
+        stage=task.stage,
+        message=task.message,
+        processed_count=task.processed_count,
+        total_count=task.total_count,
     )
 
-    return QueryResultOut.from_core(payload)
+
+@router.post("/screen/cancel/{request_id}", response_model=ScreenCancelOut)
+def cancel_screen(
+    request_id: str,
+    app_state: AppState = Depends(get_app_state),
+) -> ScreenCancelOut:
+    """Request graceful backend cancellation of an in-flight screening operation."""
+    stat, message = app_state.request_screening_cancellation(request_id)
+    if stat == "not_found":
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=message,
+        )
+    return ScreenCancelOut(
+        request_id=request_id,
+        status=stat,
+        message=message,
+    )
 
 
 @router.get("/strategies", response_model=list[StrategySummaryOut])
@@ -371,6 +525,7 @@ def run_strategy(
         query=query,
         records=app_state.dataset,
         result_assembler=assembler,
+        bars_cache=app_state.bars_cache,
     )
 
     return QueryResultOut.from_core(payload)
@@ -465,7 +620,7 @@ def restore_band_backup(
         ) from exc
 
     # Invalidate panel cache to purge stale calculated envelopes
-    app_state.clear_panel_cache()
+    app_state.invalidate_all_symbols()
 
     # Determine restored stock count for response
     all_bands = getattr(app_state.bands_repo, "_bands", {})
@@ -580,7 +735,7 @@ def update_band(
         who="cockpit",
         source="api",
     )
-    app_state.clear_panel_cache()
+    app_state.invalidate_symbol(sym)
     return BandUpdateOut(symbol=sym, timeframe=req.timeframe, value=val, success=True)
 
 

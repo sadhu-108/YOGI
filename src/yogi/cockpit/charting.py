@@ -66,8 +66,8 @@ from yogi.calculation.velocity.calculator import (
 from yogi.core.contracts.bands import IBandsRepository
 from yogi.core.contracts.market_data import MarketBar
 from yogi.core.contracts.provider import IDataProvider
+from yogi.core.contracts.storage import IBarsCache
 from yogi.core.contracts.timeframe import ITimeframeEngine
-from yogi.storage.cache import MarketBarsCache
 from yogi.timeframe.engine import TimeframeEngine
 
 logger = logging.getLogger(__name__)
@@ -90,7 +90,7 @@ class ChartDataService:
         bands_repo: Optional[IBandsRepository] = None,
         max_entries: int = 100,
         ttl_seconds: Optional[float] = 300.0,
-        bars_cache: Optional[MarketBarsCache] = None,
+        bars_cache: Optional[IBarsCache] = None,
     ) -> None:
         self.provider = provider
         self.timeframe_engine = timeframe_engine if timeframe_engine is not None else TimeframeEngine()

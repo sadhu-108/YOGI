@@ -248,6 +248,9 @@ def test_drawer_stock_panel_endpoint_returns_correct_symbol(demo_app_client: Asg
     assert "M_CUR" in km
     assert "S4" in km
     assert "ACCEL_L" in km
+    assert "EMA_UP_COUNT" in km
+    assert isinstance(km["EMA_UP_COUNT"], int)
+    assert 0 <= km["EMA_UP_COUNT"] <= 6
 
 
 def test_drawer_candles_endpoint_returns_correct_bars(demo_app_client: AsgiTestClient) -> None:

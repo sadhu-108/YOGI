@@ -259,7 +259,7 @@ def test_f05_demo_live_isolation_on_refresh(tmp_path):
             bars_cache=MarketBarsCache(cache_dir=tmp_path),
         )
         mock_live = ControllableMockProvider("yfinance")
-        state.orchestrator.registry.providers.register("yfinance", mock_live)
+        state.orchestrator.registry.providers.override("yfinance", mock_live)
 
         # Resolve a demo stock on-demand
         panel_demo = state.get_stock_panel("SBCL")

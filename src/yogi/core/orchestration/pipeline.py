@@ -1,20 +1,50 @@
-"""Core Pipeline Orchestrator — Capability coordination, data flow, and screening execution."""
-
-from typing import Any, Mapping, Optional, Sequence
+import logging
+import time
+from datetime import date, datetime
+from typing import Any, Callable, Mapping, Optional, Sequence, Union
 
 from yogi.core.configuration.engine import EngineConfig
 from yogi.core.configuration.query import ScreeningQuery
 from yogi.core.contracts.bands import IBandsRepository
 from yogi.core.contracts.calculation import CalculationContext, CalculationResult, ICalcModule
-from yogi.core.contracts.filter import IFilterRule
+from yogi.core.contracts.filter import FilterGroupSpec, FilterRuleSpec, IFilterRule, ScreeningCancelledError
 from yogi.core.contracts.market_data import MarketBar, MarketContext
 from yogi.core.contracts.provider import IDataProvider
 from yogi.core.contracts.ranking import IRankingRule, RankingMethod
 from yogi.core.contracts.results import IResultAssembler, QueryResultPayload
 from yogi.core.contracts.security import ISecurityMetadataRepository, InstrumentType
 from yogi.core.contracts.selection import ISelectionRule, SelectionMode
+from yogi.core.contracts.storage import IBarsCache
 from yogi.core.contracts.timeframe import ITimeframeEngine
 from yogi.core.registry.hub import RegistryHub
+from yogi.data.ingestion import IngestionResult, MarketDataIngestionService
+from yogi.data.providers.exceptions import DataProviderError
+
+logger = logging.getLogger(__name__)
+
+
+def _extract_dynamic_rules(group: Optional[Union[FilterRuleSpec, FilterGroupSpec]]) -> list[FilterRuleSpec]:
+    """Recursively extract all FilterRuleSpec instances configured with a dynamic condition_type."""
+    rules: list[FilterRuleSpec] = []
+    if group is None:
+        return rules
+    if isinstance(group, FilterRuleSpec):
+        if getattr(group, "condition_type", None) is not None:
+            rules.append(group)
+        return rules
+    if isinstance(group, FilterGroupSpec):
+        for r in group.rules:
+            if isinstance(r, FilterRuleSpec):
+                if getattr(r, "condition_type", None) is not None:
+                    rules.append(r)
+            elif isinstance(r, FilterGroupSpec):
+                rules.extend(_extract_dynamic_rules(r))
+    return rules
+
+
+# Backward compatibility alias
+_extract_dynamic_ema_rules = _extract_dynamic_rules
+
 
 
 class PipelineOrchestrator:
@@ -37,6 +67,8 @@ class PipelineOrchestrator:
         result_assembler: Optional[IResultAssembler] = None,
         timeframe_engine: Optional[ITimeframeEngine] = None,
         metadata_repository: Optional[ISecurityMetadataRepository] = None,
+        ingestion_service: Optional[MarketDataIngestionService] = None,
+        bars_cache: Optional[IBarsCache] = None,
     ) -> None:
         self.registry = registry
         self.filter_rule = filter_rule
@@ -45,12 +77,20 @@ class PipelineOrchestrator:
         self.result_assembler = result_assembler
         self.timeframe_engine = timeframe_engine
         self.metadata_repository = metadata_repository
+        self.ingestion_service = ingestion_service or MarketDataIngestionService()
+        self.bars_cache = bars_cache
 
     def build_dataset(
         self,
         config: EngineConfig,
         timeframe_engine: Optional[ITimeframeEngine] = None,
         metadata_repository: Optional[ISecurityMetadataRepository] = None,
+        bars_cache: Optional[IBarsCache] = None,
+        progress_callback: Optional[Callable[[str, float, Optional[int], Optional[int]], None]] = None,
+        force_refresh_bars: bool = False,
+        as_of: Optional[Union[datetime, date, str]] = None,
+        target_date: Optional[Union[datetime, date, str]] = None,
+        ingestion_service: Optional[MarketDataIngestionService] = None,
     ) -> Mapping[str, Mapping[str, Any]]:
         """Coordinate data acquisition and calculation module execution across the universe.
 
@@ -63,11 +103,21 @@ class PipelineOrchestrator:
         6. Dispatch each configured calculation module and merge CalculationResult.metrics.
         7. Produce canonical feature records keyed by symbol.
         """
+        t_start = time.perf_counter()
+        logger.info(
+            "PipelineOrchestrator: build_dataset started (provider='%s', exchange='%s', requested_symbols=%s, limit=%s)",
+            config.provider,
+            config.exchange,
+            len(config.symbols) if config.symbols is not None else "universe",
+            config.symbol_limit,
+        )
+
         tf_engine = timeframe_engine if timeframe_engine is not None else self.timeframe_engine
         if tf_engine is None:
             raise ValueError("ITimeframeEngine implementation is required to build dataset.")
 
         meta_repo = metadata_repository if metadata_repository is not None else self.metadata_repository
+        ingest_svc = ingestion_service if ingestion_service is not None else self.ingestion_service
 
         # 1. Resolve capabilities via RegistryHub (.get() method)
         provider: IDataProvider = self.registry.providers.get(config.provider)
@@ -77,6 +127,9 @@ class PipelineOrchestrator:
         ]
 
         # 2. Acquire universe symbols
+        if progress_callback:
+            progress_callback("Discovering universe symbols...", 0.05, 0, None)
+        t_u0 = time.perf_counter()
         if config.symbols is not None:
             symbols: Sequence[str] = config.symbols
         else:
@@ -86,41 +139,98 @@ class PipelineOrchestrator:
         if config.symbol_limit is not None:
             symbols = symbols[: config.symbol_limit]
 
-        calculated_records: dict[str, dict[str, Any]] = {}
+        logger.info(
+            "PipelineOrchestrator Stage 1/3 (Universe): resolved %d symbols in %.2fs",
+            len(symbols),
+            time.perf_counter() - t_u0,
+        )
+        if progress_callback:
+            progress_callback(f"Resolved universe: {len(symbols)} symbols", 0.10, 0, len(symbols))
 
-        # 3. Process each symbol
-        for symbol in symbols:
-            daily_bars: Sequence[MarketBar] = provider.daily_history(
-                symbol=symbol,
-                exchange=config.exchange,
-                years=config.historical_years,
-            )
+        # Resolve timeframe engine half-year policy once outside the universe symbol loop
+        h_policy = getattr(config, "half_year_policy", None)
+
+        # 3. Acquire historical daily bars across symbols via MarketDataIngestionService
+        t_bars0 = time.perf_counter()
+        ingestion_res = ingest_svc.ingest_daily_bars(
+            symbols=symbols,
+            provider=provider,
+            exchange=config.exchange,
+            bars_cache=bars_cache,
+            historical_years=config.historical_years,
+            provider_options=config.provider_options,
+            progress_callback=progress_callback,
+            force_refresh_bars=force_refresh_bars,
+            as_of=as_of or getattr(config, "as_of", None),
+            target_date=target_date or getattr(config, "target_date", None),
+            provider_name=config.provider,
+        )
+
+        daily_bars_map = ingestion_res.bars
+        failed_symbols = list(ingestion_res.failed_symbols)
+        logger.info(
+            "PipelineOrchestrator Stage 2/3 (Market Bars): acquired bars for %d symbols (failed: %d) in %.2fs",
+            len(daily_bars_map),
+            len(failed_symbols),
+            time.perf_counter() - t_bars0,
+        )
+
+        failed_sym_set = {s for s, _ in failed_symbols}
+        calculated_records: dict[str, dict[str, Any]] = {}
+        active_calc_symbols = [s for s in symbols if s not in failed_sym_set]
+
+        # 4. Process each symbol
+        t_calc0 = time.perf_counter()
+        total_calc = len(active_calc_symbols)
+        logger.info(
+            "PipelineOrchestrator Stage 3/3 (Calculations): calculating features for %d symbols across %d modules...",
+            total_calc,
+            len(calc_modules),
+        )
+
+        for c_idx, symbol in enumerate(active_calc_symbols, 1):
+            if progress_callback and (c_idx % 50 == 0 or c_idx == total_calc):
+                pct = 0.70 + 0.28 * (c_idx / max(1, total_calc))
+                progress_callback(
+                    f"Computing features ({c_idx}/{total_calc} symbols)",
+                    pct,
+                    c_idx,
+                    total_calc,
+                )
+            daily_bars: Sequence[MarketBar] = daily_bars_map.get(symbol, ())
 
             # Extract price safely guarding against empty history
             price: Optional[float] = daily_bars[-1].close if daily_bars else None
 
-            # 4. Construct MarketContext via Timeframe Engine
+            # Construct MarketContext via Timeframe Engine
             market_ctx = tf_engine.build_context(
                 symbol=symbol,
                 exchange=config.exchange,
                 daily_bars=daily_bars,
                 timeframes=config.timeframes,
+                half_year_policy=h_policy,
             )
 
-            # 5. Retrieve bands and filter out None values for CalculationContext.bands_lookup
+            # Retrieve bands and filter out None values for CalculationContext.bands_lookup
             all_bands = bands_repo.get_all_bands(symbol)
             bands_lookup: dict[str, float] = {
                 tf: val for tf, val in all_bands.items() if val is not None
             }
 
-            # 6. Construct CalculationContext
+            # Construct CalculationContext
+            if h_policy and h_policy != "prototype":
+                calc_params = dict(config.provider_options)
+                calc_params.setdefault("half_year_policy", h_policy)
+            else:
+                calc_params = config.provider_options
+
             calc_ctx = CalculationContext(
                 market_context=market_ctx,
                 bands_lookup=bands_lookup if bands_lookup else None,
-                parameters=config.provider_options,
+                parameters=calc_params,
             )
 
-            # 7. Initialize canonical base record with metadata enrichment
+            # Initialize canonical base record with metadata enrichment
             sec = meta_repo.get_metadata(symbol=symbol, exchange=config.exchange) if meta_repo else None
             is_fno = (sec.is_fno if sec else False) or (meta_repo.is_fno(symbol) if meta_repo else False)
 
@@ -137,14 +247,41 @@ class PipelineOrchestrator:
                 "grp": sec.series_or_group if (sec and sec.series_or_group) else "",
             }
 
-            # 8. Dispatch each configured calculation module and merge metrics
+            # Dispatch each configured calculation module and merge metrics
             for module in calc_modules:
                 res: CalculationResult = module.calculate(symbol=symbol, context=calc_ctx)
                 symbol_metrics.update(res.metrics)
 
             calculated_records[symbol] = symbol_metrics
 
+        elapsed_calc = time.perf_counter() - t_calc0
+        elapsed_total = time.perf_counter() - t_start
+        logger.info(
+            "PipelineOrchestrator Stage 3/3 (Calculations): completed in %.2fs. Total build_dataset time: %.2fs (%d records produced)",
+            elapsed_calc,
+            elapsed_total,
+            len(calculated_records),
+        )
+
+        if progress_callback:
+            progress_callback("Dataset build complete", 1.0, len(calculated_records), len(symbols))
+
+        # Preserve clear failure behavior if symbols were requested but no usable records were built
+        if symbols and not calculated_records and failed_symbols:
+            first_err = failed_symbols[0][1] if failed_symbols else "no usable records"
+            raise DataProviderError(
+                f"Data provider '{config.provider}' failed to produce usable data: {first_err}"
+            )
+
         return calculated_records
+
+    def _find_calc_module_for_condition(self, condition_type: str) -> Optional[ICalcModule]:
+        """Resolve an ICalcModule from registry that supports the given dynamic condition type."""
+        if self.registry and hasattr(self.registry, "calculations"):
+            for calc in self.registry.calculations.all().values():
+                if hasattr(calc, "supports_condition") and calc.supports_condition(condition_type):
+                    return calc
+        return None
 
     def execute_screen(
         self,
@@ -154,6 +291,9 @@ class PipelineOrchestrator:
         ranking_rule: Optional[IRankingRule] = None,
         selection_rule: Optional[ISelectionRule] = None,
         result_assembler: Optional[IResultAssembler] = None,
+        bars_cache: Optional[IBarsCache] = None,
+        cancel_check: Optional[Callable[[], bool]] = None,
+        progress_callback: Optional[Callable[[float, str, str, int, int], None]] = None,
     ) -> QueryResultPayload:
         """Execute an analytical screening query strictly adhering to QUALIFY -> ORDER -> SHOW -> RESULTS.
 
@@ -174,13 +314,189 @@ class PipelineOrchestrator:
 
         universe_count = len(records)
 
+        if cancel_check and cancel_check():
+            raise ScreeningCancelledError("Screening cancelled before evaluation.")
+        if progress_callback:
+            progress_callback(0.0, "initializing", "Initializing screening...", 0, universe_count)
+
         # -------------------------------------------------------------------
         # 1. QUALIFY (Filter Engine)
         # -------------------------------------------------------------------
         if query.filter_group is not None:
             if f_rule is None:
                 raise ValueError("IFilterRule implementation is required when query has a filter_group.")
-            eval_result = f_rule.evaluate(records=records, spec=query.filter_group)
+
+            # Dynamic on-demand evaluation of arbitrary dynamic conditions
+            dynamic_rules = _extract_dynamic_rules(query.filter_group)
+            if dynamic_rules and self.timeframe_engine is not None and records:
+                effective_cache = bars_cache or self.bars_cache
+                enriched_records: dict[str, dict[str, Any]] = {
+                    sym: dict(rec) for sym, rec in records.items()
+                }
+                symbols = list(records.keys())
+
+                sample_sym = symbols[0] if symbols else ""
+                sample_rec = records.get(sample_sym, {})
+                ex = sample_rec.get("exchange", "NSE")
+                pv = sample_rec.get("provider", "demo" if sample_rec.get("price") is not None and "DEMO" in str(sample_rec.get("name", "")).upper() else "yfinance")
+
+                # Batch lookup daily bars from cache
+                daily_bars_map: dict[str, Sequence[MarketBar]] = {}
+                if effective_cache is not None:
+                    if hasattr(effective_cache, "get_bars_for_symbols"):
+
+                        def _on_bars_prog(curr: int, tot: int) -> None:
+                            if progress_callback:
+                                pct = 15.0 * (curr / max(1, tot))
+                                progress_callback(
+                                    pct,
+                                    "fetching_bars",
+                                    f"Loading market bars ({curr}/{tot})",
+                                    curr,
+                                    tot,
+                                )
+
+                        try:
+                            found, _ = effective_cache.get_bars_for_symbols(
+                                symbols=symbols,
+                                exchange=ex,
+                                provider=pv,
+                                min_bars=2,
+                                cancel_check=cancel_check,
+                                progress_callback=_on_bars_prog,
+                            )
+                            daily_bars_map = found
+                        except TypeError:
+                            found, _ = effective_cache.get_bars_for_symbols(
+                                symbols=symbols,
+                                exchange=ex,
+                                provider=pv,
+                                min_bars=2,
+                            )
+                            daily_bars_map = found
+                        except ScreeningCancelledError:
+                            raise
+                        except Exception as cache_err:
+                            logger.debug("execute_screen: bars_cache batch lookup failed: %s", cache_err)
+
+                        # For any symbol missing from batch lookup, try fallback
+                        for sym in symbols:
+                            if cancel_check and cancel_check():
+                                raise ScreeningCancelledError("Screening cancelled during bar retrieval fallback.")
+                            if sym not in daily_bars_map:
+                                try:
+                                    f_single, _ = effective_cache.get_bars_for_symbols([sym], exchange="NSE", min_bars=2)
+                                    if f_single and sym in f_single:
+                                        daily_bars_map[sym] = f_single[sym]
+                                    elif hasattr(effective_cache, "get_bars"):
+                                        f_b = effective_cache.get_bars(sym, exchange="NSE")
+                                        if f_b:
+                                            daily_bars_map[sym] = f_b
+                                except Exception as fallback_err:
+                                    logger.warning("execute_screen: fallback bar lookup failed for symbol '%s': %s", sym, fallback_err)
+                    elif isinstance(effective_cache, Mapping):
+                        daily_bars_map = {s: effective_cache[s] for s in symbols if s in effective_cache}
+
+                # Evaluate dynamic indicator signals for each symbol and dynamic rule
+                total_rules = len(dynamic_rules)
+                total_symbols = len(symbols)
+                total_calcs = total_rules * total_symbols
+                completed_calcs = 0
+
+                for rule in dynamic_rules:
+                    calc_module = self._find_calc_module_for_condition(rule.condition_type)
+                    if calc_module is None:
+                        raise ValueError(
+                            f"No calculation module registered supporting condition_type '{rule.condition_type}'"
+                        )
+
+                    tf = (rule.timeframe or (rule.params.get("timeframe") if rule.params else None) or "D").strip().upper()
+                    p1 = rule.p1 if rule.p1 is not None else (rule.params.get("p1") if rule.params else None)
+                    p2 = rule.p2 if rule.p2 is not None else (rule.params.get("p2") if rule.params else None)
+
+                    if p1 is not None and p2 is not None:
+                        default_key = f"{rule.condition_type.upper()}_{tf}_{p1}_{p2}"
+                        rule_label = f"{rule.condition_type.upper()} {tf}({p1},{p2})"
+                    elif p1 is not None:
+                        default_key = f"{rule.condition_type.upper()}_{tf}_{p1}"
+                        rule_label = f"{rule.condition_type.upper()} {tf}({p1})"
+                    else:
+                        default_key = f"{rule.condition_type.upper()}_{tf}"
+                        rule_label = f"{rule.condition_type.upper()} {tf}"
+
+                    field_key = rule.field or default_key
+                    canonical_key = default_key if (rule.field and rule.field != default_key) else None
+                    stage_name = f"calculating_{rule.condition_type}"
+
+                    for s_idx, sym in enumerate(symbols):
+                        if cancel_check and (s_idx % 25 == 0 or s_idx == total_symbols - 1):
+                            if cancel_check():
+                                raise ScreeningCancelledError("Screening cancelled during dynamic indicator calculation.")
+
+                        completed_calcs += 1
+                        if progress_callback and (completed_calcs % 50 == 0 or completed_calcs == total_calcs):
+                            pct = 15.0 + 77.0 * (completed_calcs / max(1, total_calcs))
+                            progress_callback(
+                                pct,
+                                stage_name,
+                                f"Calculating {rule_label} ({completed_calcs}/{total_calcs})",
+                                completed_calcs,
+                                total_calcs,
+                            )
+
+                        if field_key in enriched_records[sym]:
+                            continue
+                        if canonical_key and canonical_key in enriched_records[sym]:
+                            enriched_records[sym][field_key] = enriched_records[sym][canonical_key]
+                            continue
+                        if sym in records and (field_key in records[sym] or (canonical_key and canonical_key in records[sym])):
+                            val = records[sym].get(field_key) if field_key in records[sym] else records[sym].get(canonical_key)
+                            enriched_records[sym][field_key] = val
+                            if canonical_key:
+                                enriched_records[sym][canonical_key] = val
+                            continue
+
+                        daily_b = daily_bars_map.get(sym)
+                        if daily_b:
+                            market_ctx = self.timeframe_engine.build_context(
+                                symbol=sym,
+                                exchange=ex,
+                                daily_bars=daily_b,
+                                timeframes=[tf, "D"],
+                            )
+                            calc_ctx = CalculationContext(market_context=market_ctx)
+                            try:
+                                sig = calc_module.calculate_dynamic(symbol=sym, rule=rule, context=calc_ctx)
+                            except Exception as calc_err:
+                                logger.error(
+                                    "execute_screen: calculation module '%s' failed for symbol '%s' and rule %s: %s",
+                                    getattr(calc_module, "name", type(calc_module).__name__),
+                                    sym,
+                                    rule,
+                                    calc_err,
+                                )
+                                raise
+                        else:
+                            sig = None
+
+                        enriched_records[sym][field_key] = sig
+                        if canonical_key:
+                            enriched_records[sym][canonical_key] = sig
+
+                if cancel_check and cancel_check():
+                    raise ScreeningCancelledError("Screening cancelled before filtering.")
+                if progress_callback:
+                    progress_callback(93.0, "filtering", "Evaluating filter rules...", len(enriched_records), universe_count)
+
+                eval_result = f_rule.evaluate(records=enriched_records, spec=query.filter_group)
+            else:
+                if cancel_check and cancel_check():
+                    raise ScreeningCancelledError("Screening cancelled before filtering.")
+                if progress_callback:
+                    progress_callback(50.0, "filtering", "Evaluating filter rules...", universe_count, universe_count)
+
+                eval_result = f_rule.evaluate(records=records, spec=query.filter_group)
+
             qualified_records: dict[str, Mapping[str, Any]] = {
                 sym: records[sym]
                 for sym in eval_result.matching_symbols
@@ -188,12 +504,19 @@ class PipelineOrchestrator:
             }
             qualified_count = eval_result.matched_count
         else:
+            if cancel_check and cancel_check():
+                raise ScreeningCancelledError("Screening cancelled before assembly.")
             qualified_records = dict(records)
             qualified_count = universe_count
 
         # -------------------------------------------------------------------
         # 2. ORDER (Ranking Engine)
         # -------------------------------------------------------------------
+        if cancel_check and cancel_check():
+            raise ScreeningCancelledError("Screening cancelled before ranking.")
+        if progress_callback:
+            progress_callback(96.0, "ranking", "Ranking qualified stocks...", qualified_count, universe_count)
+
         if query.ranking_metric is not None and qualified_records:
             if r_rule is None:
                 raise ValueError("IRankingRule implementation is required when query specifies ranking_metric.")
@@ -218,6 +541,11 @@ class PipelineOrchestrator:
         # -------------------------------------------------------------------
         # 3. SHOW (Selection Engine)
         # -------------------------------------------------------------------
+        if cancel_check and cancel_check():
+            raise ScreeningCancelledError("Screening cancelled before selection.")
+        if progress_callback:
+            progress_callback(98.0, "selecting", "Applying cutoffs and limits...", len(ranked_records), universe_count)
+
         if query.selection_cutoffs and ranked_records:
             if s_rule is None:
                 raise ValueError("ISelectionRule implementation is required when query specifies selection_cutoffs.")
@@ -239,6 +567,11 @@ class PipelineOrchestrator:
         # -------------------------------------------------------------------
         # 4. RESULTS (Result Assembly Engine)
         # -------------------------------------------------------------------
+        if cancel_check and cancel_check():
+            raise ScreeningCancelledError("Screening cancelled before result assembly.")
+        if progress_callback:
+            progress_callback(99.0, "assembling", "Assembling presentation results...", len(selected_records), universe_count)
+
         # Row limit cap is applied BEFORE calling assembler (assemble has no 'limit' param)
         rows_to_assemble = (
             selected_records[: query.limit]
@@ -252,22 +585,29 @@ class PipelineOrchestrator:
             "selected_count": selected_count,
             "limit": query.limit,
         }
+        if query.filter_group is not None and "eval_result" in locals() and eval_result.explanation:
+            metadata["filter_explanation"] = eval_result.explanation
 
         if assembler is not None:
-            return assembler.assemble(
+            assembled = assembler.assemble(
                 records=rows_to_assemble,
                 columns=None,
                 metadata=metadata,
             )
+        else:
+            # Fallback payload construction if assembler is not injected
+            assembled = QueryResultPayload(
+                universe_count=universe_count,
+                qualified_count=qualified_count,
+                selected_count=selected_count,
+                rows=rows_to_assemble,
+                metadata=metadata,
+            )
 
-        # Fallback payload construction if assembler is not injected
-        return QueryResultPayload(
-            universe_count=universe_count,
-            qualified_count=qualified_count,
-            selected_count=selected_count,
-            rows=rows_to_assemble,
-            metadata=metadata,
-        )
+        if progress_callback:
+            progress_callback(100.0, "completed", "Screening completed successfully.", selected_count, universe_count)
+
+        return assembled
 
     def run(
         self,

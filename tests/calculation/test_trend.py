@@ -16,6 +16,8 @@ from yogi.calculation.trend import (
     dmi_block,
     dmi_settings,
     dmi_state,
+    calculate_dynamic_ema_signal,
+    calculate_ema_up_count,
     ema_status,
     half_block,
     monthly_block,
@@ -66,11 +68,167 @@ def test_ema_fresh_cross_is_upcut():
     assert ema_status(bd([10] * 10 + [9, 8, 7, 6, 5, 20])) == "upcut"
 
 
+# ---------------- EMA UP COUNT ----------------
+def test_ema_up_count_all_six_yes():
+    # Requirement 1: Six "yes" states produce 6
+    states = {tf: "yes" for tf in ("D", "W", "M", "Q", "H", "Y")}
+    assert calculate_ema_up_count(states) == 6
+    # Full 'EMA_*' keys must also resolve and yield 6
+    full_states = {f"EMA_{tf}": "yes" for tf in ("D", "W", "M", "Q", "H", "Y")}
+    assert calculate_ema_up_count(full_states) == 6
+
+
+def test_ema_up_count_mixed_yes_and_upcut():
+    # Requirement 2: Mixed "yes" and "upcut" states count both correctly
+    states = {"D": "upcut", "W": "yes", "M": "upcut", "Q": "yes", "H": "upcut", "Y": "yes"}
+    assert calculate_ema_up_count(states) == 6
+
+    states_part = {"EMA_D": "upcut", "EMA_W": "upcut", "EMA_M": "yes", "EMA_Q": "no", "EMA_H": "downcut", "EMA_Y": "no"}
+    assert calculate_ema_up_count(states_part) == 3
+
+
+def test_ema_up_count_downcut_and_no_do_not_count():
+    # Requirement 3: "downcut" and "no" states do not count
+    states = {"D": "downcut", "W": "no", "M": "downcut", "Q": "no", "H": "downcut", "Y": "no"}
+    assert calculate_ema_up_count(states) == 0
+
+
+def test_ema_up_count_na_and_missing_do_not_count():
+    # Requirement 4: "na" and missing timeframe results do not count
+    states = {"D": "na", "W": None, "M": "na"}
+    assert calculate_ema_up_count(states) == 0
+    assert calculate_ema_up_count({}) == 0
+
+
+def test_ema_up_count_all_non_up_states_produce_zero():
+    # Requirement 5: All non-UP states produce 0
+    states = {"D": "downcut", "W": "no", "M": "na", "Q": "unknown", "H": None, "Y": ""}
+    assert calculate_ema_up_count(states) == 0
+
+
+def test_ema_up_count_mixed_bullish_and_non_up_exact():
+    # Requirement 6: A mixture of bullish and non-UP states produces exact expected count
+    # 3 bullish ('yes', 'upcut'), 1 'na', 2 non-UP ('downcut', 'no')
+    states = {
+        "D": "yes",
+        "W": "upcut",
+        "M": "yes",
+        "Q": "na",
+        "H": "downcut",
+        "Y": "no",
+    }
+    assert calculate_ema_up_count(states) == 3
+
+    # 4 bullish, 2 completely omitted from mapping
+    states_omitted = {
+        "EMA_D": "yes",
+        "EMA_W": "yes",
+        "EMA_M": "yes",
+        "EMA_Q": "upcut",
+    }
+    assert calculate_ema_up_count(states_omitted) == 4
+
+
 # ---------------- CAGR ----------------
 def test_cagr_5y_doubling():
     idx = pd.bdate_range("2021-08-13", "2026-08-13")
     s = pd.Series(np.linspace(100, 200, len(idx)), index=idx)
     assert abs(cagr_trailing(s, 5) - 14.8698) < 0.05
+
+
+def test_cagr_n_zero_or_negative():
+    idx = pd.bdate_range("2021-08-13", "2026-08-13")
+    s = pd.Series(np.linspace(100, 200, len(idx)), index=idx)
+    assert cagr_trailing(s, 0) is None
+    assert cagr_trailing(s, -1) is None
+    assert cagr_trailing(s, -5) is None
+
+
+def test_cagr_none_or_empty_series():
+    assert cagr_trailing(None, 3) is None
+    assert cagr_trailing(pd.Series([], dtype=float), 3) is None
+    empty_with_idx = pd.Series([], dtype=float, index=pd.DatetimeIndex([]))
+    assert cagr_trailing(empty_with_idx, 1) is None
+
+
+def test_cagr_insufficient_history():
+    idx = pd.date_range("2025-01-01", "2025-06-01", freq="D")
+    s = pd.Series(np.linspace(100, 150, len(idx)), index=idx)
+    # Requested 3 years, but only 5 months exist
+    assert cagr_trailing(s, 3) is None
+    assert cagr_trailing(s, 1) is None
+
+
+def test_cagr_negative_prices_safe():
+    dates = pd.to_datetime(["2020-01-01", "2023-01-01"])
+    # 1. Negative starting price
+    s_neg_start = pd.Series([-100.0, 150.0], index=dates)
+    assert cagr_trailing(s_neg_start, 3) is None
+
+    # 2. Negative ending price with object dtype (Python float) -> must not raise TypeError
+    s_neg_end_obj = pd.Series([100.0, -50.0], index=dates, dtype=object)
+    assert cagr_trailing(s_neg_end_obj, 3) is None
+
+    # 3. Negative ending price with float64 dtype -> must not return NaN or warn
+    s_neg_end_np = pd.Series([100.0, -50.0], index=dates, dtype=float)
+    assert cagr_trailing(s_neg_end_np, 3) is None
+
+
+def test_cagr_zero_prices():
+    dates = pd.to_datetime(["2020-01-01", "2023-01-01"])
+    # Zero starting price -> division by zero avoidance -> None
+    s_zero_start = pd.Series([0.0, 100.0], index=dates)
+    assert cagr_trailing(s_zero_start, 3) is None
+
+    # Zero ending price -> represents 100% total loss (-100.0%)
+    s_zero_end = pd.Series([100.0, 0.0], index=dates)
+    assert cagr_trailing(s_zero_end, 3) == -100.0
+    assert cagr_trailing(s_zero_end, 1) == -100.0
+
+
+def test_cagr_non_finite_inputs():
+    dates = pd.to_datetime(["2020-01-01", "2023-01-01"])
+    s_inf_start = pd.Series([np.inf, 100.0], index=dates)
+    assert cagr_trailing(s_inf_start, 3) is None
+
+    s_inf_end = pd.Series([100.0, np.inf], index=dates)
+    assert cagr_trailing(s_inf_end, 3) is None
+
+    s_nan_end = pd.Series([100.0, np.nan], index=dates)
+    assert cagr_trailing(s_nan_end, 3) is None
+
+
+def test_cagr_invalid_duration_types():
+    """Verify non-integer, non-finite, boolean, or non-numeric n return None safely."""
+    dates = pd.to_datetime(["2020-01-01", "2023-01-01"])
+    s = pd.Series([100.0, 150.0], index=dates)
+
+    assert cagr_trailing(s, float("nan")) is None
+    assert cagr_trailing(s, float("inf")) is None
+    assert cagr_trailing(s, -float("inf")) is None
+    assert cagr_trailing(s, 2.5) is None
+    assert cagr_trailing(s, "3") is None
+    assert cagr_trailing(s, None) is None
+    assert cagr_trailing(s, True) is None
+    assert cagr_trailing(s, False) is None
+
+    # NumPy integer must be accepted as valid integer duration
+    np_cagr = cagr_trailing(s, np.int64(3))
+    assert np_cagr is not None
+    assert round(np_cagr, 2) == 14.47
+
+
+def test_cagr_non_datetime_index():
+    """Verify series with RangeIndex or string index return None safely without TypeError."""
+    assert cagr_trailing(pd.Series([100.0, 150.0]), 1) is None
+    assert cagr_trailing(pd.Series([100.0, 150.0], index=["A", "B"]), 1) is None
+    assert cagr_trailing([100.0, 150.0], 1) is None
+
+
+def test_cagr_single_element_series():
+    """Verify single-element series returns None without crash."""
+    s = pd.Series([100.0], index=pd.to_datetime(["2020-01-01"]))
+    assert cagr_trailing(s, 1) is None
 
 
 # ---------------- ATH ----------------
@@ -118,6 +276,67 @@ def test_half_is_h2_in_august():
     idx = pd.bdate_range("2022-01-01", "2026-08-13")
     s = pd.Series(np.linspace(100, 300, len(idx)), index=idx)
     assert half_block(s)["H_CUR_KEY"] == "H2"
+
+
+def test_half_block_prototype_vs_calendar_policies():
+    """Verify half_block semantics under both prototype and calendar policies."""
+    idx = pd.date_range("2024-01-01", "2026-08-13", freq="D")
+    s = pd.Series(index=idx, dtype=float)
+
+    # Set known prices across boundaries:
+    # 2024: 100
+    # 2025 H1 (Jun 30): 110
+    # 2025 H2 (Dec 31): 120
+    # 2026 H1 (Jun 30): 150
+    # 2026 H2 to date (Aug 13): 180
+    s.loc["2024-01-01":"2024-12-31"] = 100.0
+    s.loc["2025-01-01":"2025-06-30"] = 110.0
+    s.loc["2025-07-01":"2025-12-31"] = 120.0
+    s.loc["2026-01-01":"2026-06-30"] = 150.0
+    s.loc["2026-07-01":"2026-08-13"] = 180.0
+
+    # Under Calendar policy:
+    # Current date is August 2026 -> H2
+    # Current H2 to date return: 180 / 150 (Jun 30 close) - 1 = +20.0%
+    # H_P1 (H1 2026 return): 150 / 120 (Dec 31 close) - 1 = +25.0%
+    # H_P2 (H2 2025 return): 120 / 110 (Jun 30 close) - 1 = +9.09%
+    cal_res = half_block(s, policy="calendar")
+    assert cal_res["H_CUR_KEY"] == "H2"
+    assert cal_res["H_KEYS"] == "H2,H1,H2"
+    assert round(cal_res["H_CUR"], 2) == 20.0
+    assert round(cal_res["H_P1"], 2) == 25.0
+    assert round(cal_res["H_P2"], 2) == 9.09
+    assert round(cal_res["H2"], 2) == 20.0
+    assert round(cal_res["H1"], 2) == 25.0
+
+    # Under Prototype policy (2QE):
+    proto_res = half_block(s, policy="prototype")
+    assert proto_res["H_CUR_KEY"] == "H2"
+    assert "H_CUR" in proto_res
+    assert "H_P1" in proto_res
+
+
+def test_half_block_calendar_h1_date():
+    """Verify calendar half_block when evaluated inside H1 (e.g. March)."""
+    idx = pd.date_range("2024-01-01", "2026-03-15", freq="D")
+    s = pd.Series(index=idx, dtype=float)
+    s.loc["2024-01-01":"2024-06-30"] = 100.0
+    s.loc["2024-07-01":"2024-12-31"] = 110.0
+    s.loc["2025-01-01":"2025-06-30"] = 120.0
+    s.loc["2025-07-01":"2025-12-31"] = 130.0
+    s.loc["2026-01-01":"2026-03-15"] = 143.0
+
+    cal_res = half_block(s, policy="calendar")
+    assert cal_res["H_CUR_KEY"] == "H1"
+    assert cal_res["H_KEYS"] == "H1,H2,H1"
+    # H_CUR: 143 / 130 (Dec 31 close) - 1 = +10.0%
+    assert round(cal_res["H_CUR"], 2) == 10.0
+    # H_P1: 130 / 120 (Jun 30 close) - 1 = +8.33%
+    assert round(cal_res["H_P1"], 2) == 8.33
+    # H_P2: 120 / 110 (Dec 31 close) - 1 = +9.09%
+    assert round(cal_res["H_P2"], 2) == 9.09
+    assert round(cal_res["H1"], 2) == 10.0
+    assert round(cal_res["H2"], 2) == 8.33
 
 
 # ---------------- Calendar Years ----------------
@@ -396,6 +615,9 @@ def test_trend_calculator_contract_and_calculation():
     assert "CAGR_1" in m
     assert "EMA_D" in m
     assert "EMA_W" in m
+    assert "EMA_UP_COUNT" in m
+    assert isinstance(m["EMA_UP_COUNT"], int)
+    assert 0 <= m["EMA_UP_COUNT"] <= 6
     assert "SUSPECT" in m
     assert m["SUSPECT"] in ("Y", "N")
 
@@ -417,3 +639,106 @@ def test_trend_calculator_empty_context():
     assert np.isnan(m["DROC"])
     assert m["M_CUR"] is None
     assert m["SUSPECT"] == "N"
+    assert m["EMA_UP_COUNT"] == 0
+
+
+# ---------------- Dynamic EMA Condition Builder Tests ----------------
+
+def _make_bars(closes, freq="D"):
+    idx = pd.date_range(end="2026-08-15", periods=len(closes), freq=freq)
+    return [
+        MarketBar(
+            timestamp=ts.to_pydatetime(),
+            open=c * 0.99,
+            high=c * 1.01,
+            low=c * 0.98,
+            close=float(c),
+            volume=1000.0,
+        )
+        for ts, c in zip(idx, closes)
+    ]
+
+
+def test_dynamic_ema_signal_basic_up_and_down():
+    # Monotonically rising prices: EMA(3) > EMA(5)
+    rising_bars = _make_bars(list(range(10, 60)))
+    res_up = calculate_dynamic_ema_signal(rising_bars, p1=3, p2=5, timeframe="D")
+    assert res_up["is_up"] is True
+    assert res_up["is_down"] is False
+    assert res_up["ema_fast"] > res_up["ema_slow"]
+    assert res_up["spread_pct"] > 0.0
+
+    # Monotonically falling prices: EMA(3) < EMA(5)
+    falling_bars = _make_bars(list(range(60, 10, -1)))
+    res_down = calculate_dynamic_ema_signal(falling_bars, p1=3, p2=5, timeframe="D")
+    assert res_down["is_up"] is False
+    assert res_down["is_down"] is True
+    assert res_down["ema_fast"] < res_down["ema_slow"]
+    assert res_down["spread_pct"] < 0.0
+
+
+def test_dynamic_ema_signal_upcut_and_downcut():
+    # Build series where EMA3 was below EMA5, then crosses above on the final bar
+    # 20 flat/falling bars at 100, then jump sharply to 150 on the final bar
+    cross_up_closes = [100.0] * 30 + [95.0, 90.0, 85.0, 120.0]
+    bars_up = _make_bars(cross_up_closes)
+    res_upcut = calculate_dynamic_ema_signal(bars_up, p1=3, p2=5, timeframe="D")
+    assert res_upcut["is_upcut"] is True
+    assert res_upcut["is_up"] is True  # UPCUT mathematically satisfies UP
+    assert res_upcut["is_down"] is False
+    assert res_upcut["is_downcut"] is False
+
+    # Reverse: series where EMA3 was above EMA5, then drops sharply on the final bar
+    cross_down_closes = [100.0] * 30 + [105.0, 110.0, 115.0, 80.0]
+    bars_down = _make_bars(cross_down_closes)
+    res_downcut = calculate_dynamic_ema_signal(bars_down, p1=3, p2=5, timeframe="D")
+    assert res_downcut["is_downcut"] is True
+    assert res_downcut["is_down"] is True  # DOWNCUT mathematically satisfies DOWN
+    assert res_downcut["is_up"] is False
+    assert res_downcut["is_upcut"] is False
+
+
+def test_dynamic_ema_signal_validation_distinct_and_positive_periods():
+    bars = _make_bars(list(range(10, 40)))
+
+    # Equal periods disallowed (Decision Gate A3)
+    with pytest.raises(ValueError, match="must be distinct"):
+        calculate_dynamic_ema_signal(bars, p1=5, p2=5)
+
+    # Non-positive periods disallowed
+    with pytest.raises(ValueError, match="positive integers"):
+        calculate_dynamic_ema_signal(bars, p1=0, p2=5)
+
+    with pytest.raises(ValueError, match="positive integers"):
+        calculate_dynamic_ema_signal(bars, p1=5, p2=-1)
+
+
+def test_dynamic_ema_signal_closed_candle_policy():
+    # On higher timeframes (e.g. 'W'), iloc[-1] is the forming candle, iloc[-2] is the closed candle.
+    # Case A: Cross occurred on closed candle iloc[-2], but iloc[-1] collapsed
+    # Under closed_candle_only=True, is_upcut should be TRUE because iloc[-2] crossed!
+    closes = [100.0] * 30 + [90.0, 85.0, 120.0, 50.0]
+    # iloc[-4] = 90.0, iloc[-3] = 85.0, iloc[-2] = 120.0 (cross up occurred!), iloc[-1] = 50.0 (forming)
+    bars = _make_bars(closes, freq="W")
+
+    res_closed = calculate_dynamic_ema_signal(bars, p1=3, p2=5, timeframe="W", closed_candle_only=True)
+    assert res_closed["is_upcut"] is True
+    assert res_closed["is_up"] is True
+
+    # Under closed_candle_only=False (evaluating forming bar iloc[-1] vs iloc[-2]), cross would be false
+    res_forming = calculate_dynamic_ema_signal(bars, p1=3, p2=5, timeframe="W", closed_candle_only=False)
+    assert res_forming["is_upcut"] is False
+
+
+def test_dynamic_ema_signal_insufficient_bars():
+    empty_res = calculate_dynamic_ema_signal([], p1=3, p2=5)
+    assert empty_res["is_up"] is False
+    assert empty_res["is_down"] is False
+    assert empty_res["is_upcut"] is False
+    assert empty_res["is_downcut"] is False
+    assert empty_res["ema_fast"] is None
+
+    single_res = calculate_dynamic_ema_signal(_make_bars([100.0]), p1=3, p2=5)
+    assert single_res["is_up"] is False
+    assert single_res["is_down"] is False
+

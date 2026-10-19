@@ -1,6 +1,7 @@
 """Integration tests for Cockpit offline demo data provider, bands repository, and end-to-end flow."""
 
 import asyncio
+from datetime import datetime
 import json
 from pathlib import Path
 from typing import Any, Mapping, Optional
@@ -122,6 +123,16 @@ def test_demo_provider_and_bands_contracts():
     assert bars[-1].close > 0
     assert provider.last_price("MANYAVAR") == bars[-1].close
     assert provider.health().ok is True
+
+    # Date range test
+    sub_bars = provider.daily_history("MANYAVAR", start_date="2022-01-01", end_date="2022-06-01")
+    assert len(sub_bars) > 0
+    assert sub_bars[0].timestamp >= datetime(2022, 1, 1)
+    assert sub_bars[-1].timestamp < datetime(2022, 6, 1)
+
+    # Invalid range raises
+    with pytest.raises(ValueError):
+        provider.daily_history("MANYAVAR", start_date="2022-06-01", end_date="2022-01-01")
 
     bands_repo = DemoBandsRepository()
     all_bands = bands_repo.get_all_bands("MANYAVAR")

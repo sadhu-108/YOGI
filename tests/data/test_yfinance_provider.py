@@ -1,12 +1,13 @@
 """Tests for YFinanceDataProvider."""
 
-from datetime import datetime
+from datetime import date, datetime, timezone
 from typing import Any
 import pandas as pd
 import pytest
 
 from yogi.core.contracts.market_data import MarketBar
 from yogi.core.contracts.provider import IDataProvider, ProviderHealth
+from yogi.data.providers.exceptions import DataProviderError
 from yogi.data.providers.yfinance import (
     YFinanceDataProvider,
     yf_ticker,
@@ -222,6 +223,210 @@ class TestYFinanceDataProvider:
 
         with pytest.raises(DataProviderError, match="Failed to fetch intraday bars"):
             provider.intraday("INFY")
+
+    def test_daily_history_date_range_explicit_single(self):
+        recorded_calls = []
+
+        def mock_dl(*args, **kwargs):
+            recorded_calls.append(kwargs)
+            return _mock_single_df()
+
+        provider = YFinanceDataProvider(download_fn=mock_dl)
+        # Test string boundaries
+        bars = provider.daily_history("INFY", exchange="NSE", start_date="2024-01-01", end_date="2024-01-10")
+
+        assert len(bars) == 3
+        assert recorded_calls[0]["tickers"] == "INFY.NS"
+        assert recorded_calls[0]["start"] == "2024-01-01"
+        assert recorded_calls[0]["end"] == "2024-01-10"
+        assert "period" not in recorded_calls[0]
+
+        # Test date and datetime objects
+        recorded_calls.clear()
+        provider.daily_history(
+            "INFY",
+            start_date=date(2024, 1, 1),
+            end_date=datetime(2024, 1, 10),
+        )
+        assert recorded_calls[0]["start"] == "2024-01-01"
+        assert recorded_calls[0]["end"] == "2024-01-10"
+        assert "period" not in recorded_calls[0]
+
+    def test_batch_daily_history_date_range_explicit(self):
+        recorded_calls = []
+
+        def mock_dl(*args, **kwargs):
+            recorded_calls.append(kwargs)
+            return _mock_batch_df()
+
+        provider = YFinanceDataProvider(download_fn=mock_dl)
+        res = provider.batch_daily_history(
+            ["RELIANCE", "TCS"],
+            exchange="NSE",
+            start_date="2024-01-01",
+            end_date="2024-01-10",
+        )
+
+        assert "RELIANCE" in res
+        assert "TCS" in res
+        assert len(res["RELIANCE"]) == 2
+        assert len(res["TCS"]) == 2
+        assert recorded_calls[0]["tickers"] == ["RELIANCE.NS", "TCS.NS"]
+        assert recorded_calls[0]["start"] == "2024-01-01"
+        assert recorded_calls[0]["end"] == "2024-01-10"
+        assert "period" not in recorded_calls[0]
+
+    def test_date_range_exclusive_end_boundary_semantics(self):
+        recorded_calls = []
+
+        def mock_dl(*args, **kwargs):
+            recorded_calls.append(kwargs)
+            return _mock_single_df()
+
+        provider = YFinanceDataProvider(download_fn=mock_dl)
+        provider.daily_history("INFY", start_date="2024-01-01", end_date="2024-01-05")
+
+        # Provider must pass the exact requested end boundary to yfinance without narrowing or widening
+        assert recorded_calls[0]["end"] == "2024-01-05"
+
+    def test_legacy_years_based_calls_preserved(self):
+        recorded_calls = []
+
+        def mock_dl(*args, **kwargs):
+            recorded_calls.append(kwargs)
+            return _mock_single_df()
+
+        provider = YFinanceDataProvider(download_fn=mock_dl)
+        # Explicit years
+        provider.daily_history("INFY", exchange="NSE", years=5)
+        assert recorded_calls[0]["period"] == "5y"
+        assert "start" not in recorded_calls[0]
+        assert "end" not in recorded_calls[0]
+
+        # Default years (10)
+        recorded_calls.clear()
+        provider.daily_history("INFY")
+        assert recorded_calls[0]["period"] == "10y"
+        assert "start" not in recorded_calls[0]
+        assert "end" not in recorded_calls[0]
+
+        # max years
+        recorded_calls.clear()
+        provider.daily_history("INFY", years=0)
+        assert recorded_calls[0]["period"] == "max"
+
+    def test_positional_and_keyword_callers_compatible(self):
+        recorded_calls = []
+
+        def mock_dl(*args, **kwargs):
+            recorded_calls.append(kwargs)
+            return _mock_single_df()
+
+        provider = YFinanceDataProvider(download_fn=mock_dl)
+        # Positional arguments: symbol, exchange, years
+        provider.daily_history("INFY", "NSE", 3)
+        assert recorded_calls[0]["tickers"] == "INFY.NS"
+        assert recorded_calls[0]["period"] == "3y"
+
+        # Keyword arguments
+        recorded_calls.clear()
+        provider.daily_history(symbol="TCS", exchange="NSE", years=2)
+        assert recorded_calls[0]["tickers"] == "TCS.NS"
+        assert recorded_calls[0]["period"] == "2y"
+
+        # Keyword with date range
+        recorded_calls.clear()
+        provider.daily_history(symbol="TCS", start_date="2024-01-01", end_date="2024-01-05")
+        assert recorded_calls[0]["start"] == "2024-01-01"
+        assert recorded_calls[0]["end"] == "2024-01-05"
+
+    def test_invalid_date_ranges_rejected(self):
+        recorded_calls = []
+
+        def mock_dl(*args, **kwargs):
+            recorded_calls.append(kwargs)
+            return _mock_single_df()
+
+        provider = YFinanceDataProvider(download_fn=mock_dl)
+
+        # start >= end (reversed)
+        with pytest.raises(ValueError, match="must be strictly earlier than end_date"):
+            provider.daily_history("INFY", start_date="2024-01-10", end_date="2024-01-05")
+
+        # start == end
+        with pytest.raises(ValueError, match="must be strictly earlier than end_date"):
+            provider.daily_history("INFY", start_date="2024-01-05", end_date="2024-01-05")
+
+        # start >= end with date objects
+        with pytest.raises(ValueError, match="must be strictly earlier than end_date"):
+            provider.daily_history("INFY", start_date=date(2024, 2, 1), end_date=date(2024, 1, 1))
+
+        # Mixed timezone aware and naive
+        with pytest.raises(ValueError, match="Cannot compare timezone-aware and timezone-naive"):
+            provider.daily_history(
+                "INFY",
+                start_date=datetime(2024, 1, 1),
+                end_date=datetime(2024, 1, 10, tzinfo=timezone.utc),
+            )
+
+        # Invalid string format
+        with pytest.raises(ValueError, match="Invalid date string"):
+            provider.daily_history("INFY", start_date="invalid-date", end_date="2024-01-10")
+
+        # Unsupported type
+        with pytest.raises(ValueError, match="Unsupported type"):
+            provider.daily_history("INFY", start_date=12345, end_date="2024-01-10")
+
+        # Ensure NO download was attempted for any invalid call
+        assert len(recorded_calls) == 0
+
+    def test_partial_boundary_behavior(self):
+        recorded_calls = []
+
+        def mock_dl(*args, **kwargs):
+            recorded_calls.append(kwargs)
+            return _mock_single_df()
+
+        provider = YFinanceDataProvider(download_fn=mock_dl)
+
+        # Valid partial boundary: start_date only (downloads from start_date to latest)
+        provider.daily_history("INFY", start_date="2024-01-01")
+        assert recorded_calls[0]["start"] == "2024-01-01"
+        assert "end" not in recorded_calls[0]
+        assert "period" not in recorded_calls[0]
+
+        # Disallowed partial boundary: end_date without start_date (must reject to prevent 99-year full history)
+        recorded_calls.clear()
+        with pytest.raises(ValueError, match="Cannot specify end_date without start_date"):
+            provider.daily_history("INFY", end_date="2024-01-10")
+        assert len(recorded_calls) == 0
+
+    def test_failed_explicit_range_no_full_history_fallback(self):
+        download_attempts = []
+
+        def mock_dl_fail(*args, **kwargs):
+            download_attempts.append(kwargs)
+            raise ConnectionError("Yahoo Finance network error")
+
+        provider = YFinanceDataProvider(download_fn=mock_dl_fail)
+
+        # Single symbol
+        with pytest.raises(DataProviderError, match="Failed to fetch daily history"):
+            provider.daily_history("INFY", start_date="2024-01-01", end_date="2024-01-10")
+
+        # Exactly 1 download attempt made with the date range; NO retry with period or full-history
+        assert len(download_attempts) == 1
+        assert download_attempts[0]["start"] == "2024-01-01"
+        assert "period" not in download_attempts[0]
+
+        # Batch
+        download_attempts.clear()
+        with pytest.raises(DataProviderError, match="Batch daily history download failed"):
+            provider.batch_daily_history(["INFY", "TCS"], start_date="2024-01-01", end_date="2024-01-10")
+
+        assert len(download_attempts) == 1
+        assert download_attempts[0]["start"] == "2024-01-01"
+        assert "period" not in download_attempts[0]
 
     def test_register_in_registry_hub(self):
         from yogi.core.registry import RegistryHub

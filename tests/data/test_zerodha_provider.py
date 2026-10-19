@@ -142,6 +142,30 @@ class TestZerodhaDataProvider:
         # Historical chunking was called
         assert len(mock_kite.history_calls) >= 2
 
+    def test_daily_history_date_range(self):
+        mock_kite = MockKiteClient()
+        provider = ZerodhaDataProvider(kite_client=mock_kite)
+
+        bars = provider.daily_history(
+            "RELIANCE",
+            exchange="NSE",
+            start_date="2024-01-01",
+            end_date="2024-06-01",
+        )
+        assert len(bars) >= 2
+        assert len(mock_kite.history_calls) >= 1
+        assert mock_kite.history_calls[0]["from"] == datetime(2024, 1, 1)
+
+    def test_daily_history_invalid_date_range_rejected(self):
+        mock_kite = MockKiteClient()
+        provider = ZerodhaDataProvider(kite_client=mock_kite)
+
+        with pytest.raises(ValueError, match="must be strictly earlier than end_date"):
+            provider.daily_history("RELIANCE", start_date="2024-06-01", end_date="2024-01-01")
+
+        with pytest.raises(ValueError, match="Cannot specify end_date without start_date"):
+            provider.daily_history("RELIANCE", end_date="2024-01-01")
+
     def test_daily_history_unknown_token(self):
         mock_kite = MockKiteClient()
         provider = ZerodhaDataProvider(kite_client=mock_kite)

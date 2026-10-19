@@ -17,9 +17,10 @@
 - Ten authoritative contract modules defining immutable DTOs, protocols, and enums:
   - `market_data.py`: `MarketBar`, `TickData`, `MarketContext`, `Timeframe`.
   - `provider.py`: `IDataProvider`, `ProviderHealth`.
-  - `calculation.py`: `ICalcModule`, `CalculationContext`, `CalculationResult`.
+  - `timeframe.py`: `ITimeframeEngine` (authoritative timeframe contract formalized under YOGI-F01 and [ADR-016](decisions.md#adr-016-timeframe-engine-contract-itimeframeengine-adoption--reconciliation)).
+  - `calculation.py`: `ICalcModule` (extended with `supports_condition` and `calculate_dynamic` per [ADR-018](decisions.md#adr-018-modular-condition-evaluators--calculation-registry-dynamic-dispatch-for-filtering)), `CalculationContext`, `CalculationResult`.
   - `bands.py`: `IBandsRepository`, `BandEntry`, `BandAuditEntry`, `BandBackupInfo`, `IBandAuditRepository`, `IBandBackupService`, `BAND_TIMEFRAMES`.
-  - `filter.py`: `IFilterRule`, `FilterOperator`, `FilterRuleSpec`, `FilterGroupSpec`, `FilterStepMetric`, `FilterEvaluationResult`.
+  - `filter.py`: `IFilterRule`, `IConditionEvaluator` (modular condition evaluator contract per [ADR-018](decisions.md#adr-018-modular-condition-evaluators--calculation-registry-dynamic-dispatch-for-filtering)), `FilterOperator`, `FilterRuleSpec` (extended with `params`), `FilterGroupSpec`, `FilterStepMetric`, `FilterEvaluationResult`.
   - `strategy.py`: `IStrategy`, `StrategySpec`, `StrategyValidationResult`.
   - `ranking.py`: `IRankingRule`, `RankingOrder`, `RankingMethod`, `RankingResult`.
   - `selection.py`: `ISelectionRule`, `SelectionMode`, `RankCutoffSpec`, `SelectionResult`.
@@ -49,8 +50,10 @@
   - `execute_screen(query: ScreeningQuery, records: Mapping[str, Mapping[str, Any]], ...) -> QueryResultPayload`
   - `run(config: EngineConfig, query: Optional[ScreeningQuery] = None) -> QueryResultPayload`
 - Resolves capabilities exclusively through `RegistryHub`. Contains zero financial formulas, resampling logic, or filtering math.
+- Dispatches on-demand dynamic indicator calculations polymorphically via `RegistryHub.calculations` (`ICalcModule.supports_condition`, `ICalcModule.calculate_dynamic`) with zero module-level imports from concrete calculation packages ([ADR-018](decisions.md#adr-018-modular-condition-evaluators--calculation-registry-dynamic-dispatch-for-filtering)).
 - Preserves assigned rank ordering across dynamic cohort rankings.
-- Verified by `tests/core/test_orchestration.py` (17/17 tests passing).
+- Replaced silent exception swallowing with explicit `logger.warning(...)` during fallback bar retrieval.
+- Verified by `tests/core/test_orchestration.py` (22/22 tests passing).
 
 ### Step 6: Data Providers & Normalization (`src/yogi/data/`) (FROZEN)
 - `normalization/bars.py`: Pure normalizers converting raw vendor payloads into frozen `MarketBar` and `TickData` DTOs (including `normalize_yfinance_bars`, `normalize_yfinance_batch`, `normalize_zerodha_history`, `normalize_zerodha_tick`).
@@ -62,7 +65,7 @@
 - Verified by `tests/data/test_normalization.py` (11/11), `tests/data/test_yfinance_provider.py` (18/18), `tests/data/test_zerodha_provider.py` (18/18), `tests/data/test_batch_5_classification.py` (19/19), and `tests/data/test_batch_5_fno.py` (6/6) (72/72 tests passing).
 
 ### Step 7: Timeframe Engine (`src/yogi/timeframe/`) (FROZEN)
-- `engine.py`: Pure multi-timeframe candle synthesis (`resample_bars`, `build_market_context`, `TimeframeEngine`, `TIMEFRAME_RULES`) ([ADR-007](decisions.md#adr-007-timeframe-engine-bounded-responsibility)).
+- `engine.py`: Pure multi-timeframe candle synthesis (`resample_bars`, `build_market_context`, `TimeframeEngine`, `TIMEFRAME_RULES`) ([ADR-007](decisions.md#adr-007-timeframe-engine-bounded-responsibility), [ADR-016](decisions.md#adr-016-timeframe-engine-contract-itimeframeengine-adoption--reconciliation)).
 - Supports `D` $\to$ `W`, `M`, `Q`, `H`, `Y` using verified frequency aliases (`D=None`, `W="W"`, `M="ME"`, `Q="QE"`, `H="2QE"`, `Y="YE"`).
 - Preserves OHLCV aggregation semantics (Open=first, High=max, Low=min, Close=last, Volume=sum), period-end boundary timestamps, None volume preservation, chronological pre-sorting, deterministic deduplication (last occurrence), and incomplete period aggregation without padding.
 - Verified by `tests/timeframe/test_synthesis.py` (25/25 tests passing).
@@ -72,7 +75,7 @@
   - `BandsCalculator` (`"bands"`): Envelope levels, positions, states (`ABOVE`, `BELOW`, `IN`, `na`), distances beyond edge (`BD_*`), and multi-timeframe counts. Authoritative envelope mathematics centralized in `calculate_band_envelope()` returning `BandEnvelopeResult` (YOGI-F03), serving as the single mathematical source of truth across Core feature generation and Cockpit chart curves.
   - `VelocityCalculator` (`"velocity"`): Rolling sprint speeds (`S4`..`S52`), accelerations (`ACCEL_S`, `ACCEL_L`), consistency flags (`SPR_CONSIST`), authoritative anchored sprints (`SPA_A*`), and sprint race cumulative return time-series math via `calculate_anchored_curve` / `anchored_curve`.
   - `ImpulseCalculator` (`"impulse"`): Zigzag swing pivots and Ram's 50% recovery validation (`IC="IP"|"CR"|"up"|"na"`, `IC_PCT`, `IC_BARS`, `IC_RATIO`).
-  - `TrendCalculator` (`"trend"`): Trailing ROCs (`DROC`..`YROC`), calendar blocks (Quarter, Half, Year), multi-year CAGRs, ATH diff, EMA 3/5 ribbon states, `SUSPECT` data sanity flag, and DMI/ADX.
+  - `TrendCalculator` (`"trend"`): Trailing ROCs (`DROC`..`YROC`), calendar blocks (Quarter, Half, Year), multi-year CAGRs, ATH diff, EMA 3/5 ribbon states, `SUSPECT` data sanity flag, DMI/ADX, and polymorphic dynamic indicator calculation via `calculate_dynamic()` and `supports_condition("ema")` ([ADR-018](decisions.md#adr-018-modular-condition-evaluators--calculation-registry-dynamic-dispatch-for-filtering)), reusing `calculate_dynamic_ema_signal()` for arbitrary $(P_1, P_2)$ integer pairs across supported timeframes (`D, W, M, Q, H`; with `Y` excluded due to period cap 1) with relationship, crossover, and closed-candle policy evaluation ([ADR-017](decisions.md#adr-017-dynamic-ema-condition-builder-architecture--contract-integration)).
   - `CandleCalculator` (`"candles"`): Multi-timeframe candlestick shape metrics and pattern recognition ported with strict prototype parity from `yogi/theories/candles.py`. Computes 38 fields per timeframe (with volume, 35 without) across 6 timeframes (`CD_`, `CW_`, `CM_`, `CQ_`, `CH_`, `CY_`), totaling 228 fields (or 210 without volume). Evaluates 20 distinct pattern flags (`BULL_ENGULF`, `BEAR_ENGULF`, `DOJI`, `HAMMER`, `SHOOTSTAR`, `MARUBOZU`, `INSIDE`, `OUTSIDE`, `BREAKOUT`, `BREAKDOWN`, `HIGHER_HIGH`, `HIGHER_LOW`, `THREE_UP`, `THREE_DN`, `CLOSE_STRONG`, `CLOSE_WEAK`, `BIG_RANGE`, `VOL_SPIKE`), directional `GREEN` categorical flag, and volume ratios (`VOL_X`). Default thresholds configured in `src/yogi/calculation/candles/rules.py` matching prototype `candle_rules.py`, overridable via `context.parameters`.
   - **Batch 3B Pure Price & Volatility Indicators**:
     - `calculate_bollinger_bands()` in `calculation/bands`: 20-period moving average with 2-standard-deviation envelope (`basis +/- 2*sd`).
@@ -104,7 +107,7 @@
 ### Step 9: Screening Engine (`filter/`, `ranking/`, `selection/`, `strategy/`) (FROZEN)
 - **Filter Engine (`src/yogi/filter/`)**:
   - `FilterEngine` implementing `IFilterRule`: pure boolean qualification evaluation ("Does it qualify?").
-  - Evaluates leaf rules (`FilterRuleSpec`) across all 12 operators (`>`, `>=`, `<`, `<=`, `==`, `!=`, `in`, `not_in`, `between`, `blank`, `not_blank`, `contains`).
+  - Evaluates leaf rules (`FilterRuleSpec`) across all 12 operators (`>`, `>=`, `<`, `<=`, `==`, `!=`, `in`, `not_in`, `between`, `blank`, `not_blank`, `contains`) as well as modular domain-specific conditions via registered `IConditionEvaluator` instances (`register_evaluator(condition_type, evaluator)`), pre-registering `EmaConditionEvaluator` for `"ema"` ([ADR-018](decisions.md#adr-018-modular-condition-evaluators--calculation-registry-dynamic-dispatch-for-filtering)). Contains zero hardcoded indicator logic.
   - Supports cross-column comparisons (`field2`), case-insensitive string operations, missing/NaN safe handling, and rule-level negation (`is_negated`).
   - Evaluates recursive nested groups (`FilterGroupSpec`) supporting `match="all"` (AND) and `match="any"` (OR) logic, group negation, top-level funnel step telemetry (`FilterStepMetric`), and human-readable explanation sentences.
 - **Ranking Engine (`src/yogi/ranking/`)**:
@@ -316,6 +319,9 @@ Total tests: **595 passed, 0 failures** (100% pass rate across Core, Providers, 
 | **Results Engine (`src/yogi/results/`)** | **IMPLEMENTED** | `ResultAssembler` and `ExportFormatter` for XLSX, CSV, JSON byte streams (Step 10). |
 | **Cockpit UI & Master UX** | **IMPLEMENTED & FROZEN (Batch U1)** | Interactive workspace, Coherent Stock Detail Technical Analysis Workspace (grouped overlays, single-active sub-panels, independent band timeframe, metadata badges, categorized 6-TF matrix, async race protection), AppState cache, metadata endpoints, and REST APIs (Step 11 & Batch U1). |
 | **Market Metadata & Classification** | **IMPLEMENTED (Batch 5)** | Pure classification normalizer (`classification.py`), pure NSE F&O universe normalizer (`fno.py`), resilient dual-mirror NSE source adapter (`sources/nse.py`), pipeline base record enrichment (`name, sector, grade, mcap, fno, instr, grp`), and Cockpit metadata APIs (`GET /api/meta/{symbol}`, `POST /api/meta/{symbol}`) with demo isolation. |
+| **EMA Filter & Matrix** | **PARTIALLY IMPLEMENTED / CONTRACT SPECIFIED** | Fixed 3/5 calculation and `EMA_UP_COUNT` (0–6) verified in `TrendCalculator` (Stage EMA-1). Parameterized $(P_1, P_2)$ periods with caps (`D`:31, `W`:52, `M`:12, `Q`:4, `H`:2, `Y`:1) and states (`UP`, `DOWN`, `UPCUT`, `DOWNCUT`) documented in [ADR-015](decisions.md#adr-015-ema-band-roc-filtering-and-multi-period-ranking-contract-separation); backend/UI implementation pending. |
+| **Band Position Filter** | **PARTIALLY IMPLEMENTED / CONTRACT SPECIFIED** | Band envelope math and categorical states (`ABOVE`, `IN`, `BELOW`) verified in `BandsCalculator`. Multi-select position filtering (`Above`, `Within`, `Below`) documented in [ADR-015](decisions.md#adr-015-ema-band-roc-filtering-and-multi-period-ranking-contract-separation); UI integration pending. |
+| **ROC Filter vs Multi-Period Ranking** | **PARTIALLY IMPLEMENTED / CONTRACT SPECIFIED** | Trailing ROC metrics and single-metric ranking implemented. Multi-period ranking capabilities (YTD, extended 5-year, combined 5-year average, distinct period retention, Leaders vs Backbenchers) documented in [ADR-015](decisions.md#adr-015-ema-band-roc-filtering-and-multi-period-ranking-contract-separation); implementation pending. |
 | **Architectural Findings (F01–F06)** | **RESOLVED** | All 6 findings (F01 Timeframe protocol injection in pipeline orchestrator, F02 Demo provider location in `data/providers/`, F03 Centralized band envelope math in `calculator.py`, F04 Bounded chart data cache with LRU/TTL in `charting.py`, F05 Stock-Panel on-demand resolution with bounded LRU cache in `state.py`, F06 Documentation synchronization) are fully resolved and verified. |
 | **Mentor Review & UX Definition** | **PENDING NEXT PHASE** | Mentor will evaluate presentation of calculations, options, strategies, filters, rankings, and analytical metrics to define final user-facing UX. |
 | **Live In-Memory Hot Path** | **PLANNED** | Real-time tick aggregation and streaming calculation updates (Step 12). |
@@ -375,10 +381,15 @@ The system strictly distinguishes between different categories of capability sta
 
 ### B. UI NOT YET EXPOSED (Remaining Minor Presentation Backlog)
 - Advanced filter builder UI controls for cross-field comparison (`field2`).
+- Configurable EMA condition builder with timeframe-first selection, dynamic period caps (`D`: 31, `W`: 52, `M`: 12, `Q`: 4, `H`: 2, `Y`: 1), and state selection (`UP`, `DOWN`, `UPCUT`, `DOWNCUT`) per [ADR-015](decisions.md#adr-015-ema-band-roc-filtering-and-multi-period-ranking-contract-separation).
+- Multi-select Band position filter controls (`Above`, `Within`, `Below`) per [ADR-015](decisions.md#adr-015-ema-band-roc-filtering-and-multi-period-ranking-contract-separation).
+- Multi-period ROC ranking controls with Leaders / Backbenchers directional sorting and multi-period retention per [ADR-015](decisions.md#adr-015-ema-band-roc-filtering-and-multi-period-ranking-contract-separation).
 
 ### C. REMAINING MINOR BACKEND GAPS
 1. **Multi-Month Historical Rank Trajectory Disk Archive (/api/rankhistory/{symbol})**: Scanning disk archive dumps (data/history/*.csv) to return a multi-year rank trajectory curve. *(Current YOGI dynamically computes current-vs-prior month rank change RANK_CHG in-memory within the screening pipeline).*
 2. **Persistent Custom DMI Parameter Endpoint (/api/dmi/settings)**: REST API endpoint allowing users to modify global DMI/ADX period lengths and persist them to disk.
+3. **Parameterized Dynamic $(P_1, P_2)$ EMA Calculation**: Engine support for evaluating arbitrary moving average periods per timeframe while preserving existing fixed 3/5 metrics and `EMA_UP_COUNT` per [ADR-015](decisions.md#adr-015-ema-band-roc-filtering-and-multi-period-ranking-contract-separation).
+4. **Multi-Period ROC Ranking Engine Execution**: Support for calculating and projecting multiple simultaneous rank columns (e.g., `RANK_ROC_3M`, `RANK_ROC_3Y`, `RANK_YTD_ROC`) without score collapse per [ADR-015](decisions.md#adr-015-ema-band-roc-filtering-and-multi-period-ranking-contract-separation).
 
 ### D. DELIBERATELY DEFERRED (Architectural Decisions)
 - Bi-Weekly (2W) and Bi-Monthly (2M) timeframes (deferred per ADR-007).
@@ -386,9 +397,12 @@ The system strictly distinguishes between different categories of capability sta
 - Cold database price storage (SQL / TimescaleDB) (Step 12).
 - Automated brokerage order execution (excluded by core system scope).
 
-### E. PRODUCT / MENTOR DECISIONS (UX Direction)
+### E. PRODUCT / MENTOR DECISIONS (UX & Design Direction)
 - Information density model: 1-click header quick-tick ribbon vs clean consolidated strategy presets.
 - Oscillator layout: stacked sub-panes vs active oscillator dropdown selector.
+- Combined 5-year average ROC formula: arithmetic mean of annual returns $\frac{1}{5}\sum Y_i$ vs geometric CAGR vs rolling cumulative ROC per [ADR-015](decisions.md#adr-015-ema-band-roc-filtering-and-multi-period-ranking-contract-separation).
+- EMA strength ordering metric: percentage spread $\frac{EMA_{fast} - EMA_{slow}}{EMA_{slow}} \times 100$ vs price delta vs expansion slope for ordering UP/UPCUT and DOWN/DOWNCUT states per [ADR-015](decisions.md#adr-015-ema-band-roc-filtering-and-multi-period-ranking-contract-separation).
+- Dynamic EMA calculation architecture: precomputed during dataset build vs evaluated on-demand in pipeline per [ADR-015](decisions.md#adr-015-ema-band-roc-filtering-and-multi-period-ranking-contract-separation).
 
 ---
 

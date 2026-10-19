@@ -227,3 +227,13 @@ def test_assembler_column_definition_attributes():
     assert defs["OUT_ABOVE"].category == "BANDS"
     assert defs["OUT_ABOVE"].is_numeric is True
     assert defs["OUT_ABOVE"].format_string == "0"
+
+
+def test_assembler_ema_up_count_column_definition():
+    """Verify EMA_UP_COUNT column definition: category EMA, numeric integer format '0'."""
+    col_def = build_column_definition("EMA_UP_COUNT")
+    assert col_def.key == "EMA_UP_COUNT"
+    assert col_def.category == "EMA"
+    assert col_def.is_numeric is True
+    assert col_def.format_string == "0"
+    assert col_def.label == "EMA UP Count"

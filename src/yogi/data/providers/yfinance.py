@@ -4,10 +4,16 @@ Implements the IDataProvider contract using yfinance and canonical normalizers.
 Supports daily history, batch daily history, intraday historical bars, and health checks.
 """
 
+from datetime import date, datetime
+import logging
 from pathlib import Path
+import time
 from typing import Any, Callable, Mapping, Optional, Sequence, Union
 
+import pandas as pd
 import yfinance as yf
+
+logger = logging.getLogger(__name__)
 
 from yogi.core.contracts.market_data import MarketBar, TickData
 from yogi.core.contracts.provider import IDataProvider, ProviderHealth
@@ -28,59 +34,15 @@ SUFFIX_MAP: Mapping[str, str] = {
 
 DEFAULT_HEALTH_SYMBOL: str = "RELIANCE"
 
-# Standard Indian Stock Market Trading Holidays (NSE/BSE)
-INDIAN_TRADING_HOLIDAYS: Mapping[int, Sequence[str]] = {
-    2024: (
-        "2024-01-22",
-        "2024-01-26",
-        "2024-03-08",
-        "2024-03-25",
-        "2024-03-29",
-        "2024-04-11",
-        "2024-04-17",
-        "2024-05-01",
-        "2024-05-20",
-        "2024-06-17",
-        "2024-07-17",
-        "2024-08-15",
-        "2024-10-02",
-        "2024-11-01",
-        "2024-11-15",
-        "2024-12-25",
-    ),
-    2025: (
-        "2025-02-26",
-        "2025-03-14",
-        "2025-03-31",
-        "2025-04-10",
-        "2025-04-14",
-        "2025-04-18",
-        "2025-05-01",
-        "2025-08-15",
-        "2025-08-27",
-        "2025-10-02",
-        "2025-10-21",
-        "2025-10-22",
-        "2025-11-05",
-        "2025-12-25",
-    ),
-    2026: (
-        "2026-01-26",
-        "2026-03-03",
-        "2026-03-20",
-        "2026-03-31",
-        "2026-04-03",
-        "2026-04-14",
-        "2026-05-01",
-        "2026-05-28",
-        "2026-08-15",
-        "2026-08-26",
-        "2026-10-02",
-        "2026-10-20",
-        "2026-11-10",
-        "2026-12-25",
-    ),
-}
+# Shared Indian market calendar and date utilities (re-exported for backward compatibility)
+from yogi.market.calendar import (
+    INDIAN_TRADING_HOLIDAYS,
+    parse_date_boundary,
+    validate_and_format_date_range,
+)
+
+_parse_date_boundary = parse_date_boundary
+_validate_and_format_date_range = validate_and_format_date_range
 
 
 def yf_ticker(
@@ -102,6 +64,7 @@ def yf_ticker(
 
     suffix = SUFFIX_MAP.get((exchange or "NSE").upper(), ".NS")
     return f"{sym_u}{suffix}"
+
 
 
 class YFinanceDataProvider(IDataProvider):
@@ -165,23 +128,36 @@ class YFinanceDataProvider(IDataProvider):
         symbol: str,
         exchange: str = "NSE",
         years: int = 10,
+        start_date: Optional[Union[datetime, date, str]] = None,
+        end_date: Optional[Union[datetime, date, str]] = None,
     ) -> Sequence[MarketBar]:
         """Return historical daily OHLCV bars for a single symbol.
 
         Raises:
+            ValueError: If date range is invalid (start >= end, missing start when end provided, etc.).
             DataProviderError: If external vendor download fails due to network or API outage.
             TypeError / AttributeError: Re-raised directly if programming errors occur.
         """
+        start_str, end_str = _validate_and_format_date_range(start_date, end_date)
         tk = yf_ticker(symbol, exchange=exchange, aliases=self._aliases)
         period = f"{years}y" if years > 0 else "max"
+        t0 = time.perf_counter()
+
+        dl_kwargs: dict[str, Any] = {
+            "tickers": tk,
+            "interval": "1d",
+            "auto_adjust": self._auto_adjust,
+            "progress": False,
+        }
+        if start_str is not None:
+            dl_kwargs["start"] = start_str
+            if end_str is not None:
+                dl_kwargs["end"] = end_str
+        else:
+            dl_kwargs["period"] = period
+
         try:
-            df = self._download_fn(
-                tickers=tk,
-                period=period,
-                interval="1d",
-                auto_adjust=self._auto_adjust,
-                progress=False,
-            )
+            df = self._download_fn(**dl_kwargs)
         except (TypeError, AttributeError, NameError):
             raise
         except Exception as err:
@@ -189,36 +165,66 @@ class YFinanceDataProvider(IDataProvider):
                 f"Failed to fetch daily history for '{symbol}' ({tk}) from yfinance: {err}"
             ) from err
 
-        return normalize_yfinance_bars(df)
+        bars = normalize_yfinance_bars(df)
+        elapsed = time.perf_counter() - t0
+        range_desc = f"range: '{start_str}' to '{end_str or 'latest'}'" if start_str else f"period: '{period}'"
+        logger.debug(
+            "YFinanceDataProvider: daily_history for '%s' (%s, %s) finished in %.2fs (%d bars)",
+            symbol,
+            tk,
+            range_desc,
+            elapsed,
+            len(bars),
+        )
+        return bars
 
     def batch_daily_history(
         self,
         symbols: Sequence[str],
         exchange: str = "NSE",
         years: int = 10,
+        start_date: Optional[Union[datetime, date, str]] = None,
+        end_date: Optional[Union[datetime, date, str]] = None,
     ) -> Mapping[str, Sequence[MarketBar]]:
         """Batch fetch daily history for multiple symbols.
 
         Raises:
+            ValueError: If date range is invalid (start >= end, missing start when end provided, etc.).
             DataProviderError: If external vendor batch download fails due to network or API outage.
             TypeError / AttributeError: Re-raised directly if programming errors occur.
         """
         if not symbols:
             return {}
 
+        start_str, end_str = _validate_and_format_date_range(start_date, end_date)
         tickers = [yf_ticker(s, exchange=exchange, aliases=self._aliases) for s in symbols]
         period = f"{years}y" if years > 0 else "max"
+        t0 = time.perf_counter()
+        range_desc = f"range: '{start_str}' to '{end_str or 'latest'}'" if start_str else f"period: '{period}'"
+        logger.info(
+            "YFinanceDataProvider: batch_daily_history requesting %d symbols (first: '%s', %s)",
+            len(symbols),
+            tickers[0] if tickers else "",
+            range_desc,
+        )
+
+        dl_kwargs: dict[str, Any] = {
+            "tickers": tickers,
+            "interval": "1d",
+            "auto_adjust": self._auto_adjust,
+            "progress": False,
+            "threads": True,
+            "group_by": "column",
+        }
+        if start_str is not None:
+            dl_kwargs["start"] = start_str
+            if end_str is not None:
+                dl_kwargs["end"] = end_str
+        else:
+            dl_kwargs["period"] = period
 
         try:
-            df = self._download_fn(
-                tickers=tickers,
-                period=period,
-                interval="1d",
-                auto_adjust=self._auto_adjust,
-                progress=False,
-                threads=True,
-                group_by="column",
-            )
+            df = self._download_fn(**dl_kwargs)
         except (TypeError, AttributeError, NameError):
             raise
         except Exception as err:
@@ -226,12 +232,21 @@ class YFinanceDataProvider(IDataProvider):
                 f"Batch daily history download failed for {len(symbols)} symbols from yfinance: {err}"
             ) from err
 
-        return normalize_yfinance_batch(
+        batch_result = normalize_yfinance_batch(
             df=df,
             symbols=symbols,
             exchange=exchange,
             ticker_map=self._aliases,
         )
+        elapsed = time.perf_counter() - t0
+        valid_count = sum(1 for b in batch_result.values() if b)
+        logger.info(
+            "YFinanceDataProvider: batch_daily_history completed in %.2fs (received %d symbols with data, %d empty)",
+            elapsed,
+            valid_count,
+            len(symbols) - valid_count,
+        )
+        return batch_result
 
     def last_price(self, symbol: str, exchange: str = "NSE") -> Optional[float]:
         """Return the most recent close or traded price for a symbol."""

@@ -10,9 +10,13 @@ Provides:
 """
 
 import asyncio
+from dataclasses import dataclass, field
+import inspect
 import json
 import logging
+import os
 import threading
+import time
 from collections import OrderedDict
 from datetime import datetime, timezone
 from pathlib import Path
@@ -21,15 +25,8 @@ from typing import Any, Mapping, Optional, Sequence
 
 logger = logging.getLogger(__name__)
 
-from yogi.calculation.bands import BandsCalculator
-from yogi.calculation.candles import CandleCalculator
-from yogi.calculation.impulse import ImpulseCalculator
-from yogi.calculation.trend import TrendCalculator
-from yogi.calculation.velocity import VelocityCalculator
 from yogi.cockpit.charting import ChartDataService
 from yogi.cockpit.services import RaceDataService
-from yogi.cockpit.demo import DemoBandsRepository
-from yogi.data.providers.demo import DemoDataProvider
 from yogi.cockpit.schemas import (
     RankCutoffIn,
     StockDetailPanelOut,
@@ -37,16 +34,20 @@ from yogi.cockpit.schemas import (
     TimeframeRowOut,
     from_core_filter_group,
 )
+from yogi.storage.cache import DatasetCache, MarketBarsCache
+from yogi.storage.paths import get_data_dir
 from yogi.core.configuration.catalog import StrategyCatalog
 from yogi.core.configuration.engine import EngineConfig
 from yogi.core.contracts.bands import IBandsRepository
+from yogi.core.contracts.filter import IConditionEvaluator, IFilterRule
 from yogi.core.contracts.provider import IDataProvider
+from yogi.core.contracts.storage import IBarsCache, IDatasetCache
 from yogi.core.contracts.results import IExportFormatter, IResultAssembler, QueryResultPayload
 from yogi.core.contracts.security import ISecurityMetadataRepository
 from yogi.core.orchestration.pipeline import PipelineOrchestrator
-from yogi.core.registry.hub import RegistryHub
+from yogi.core.registry import RegistryHub, create_default_registry_hub
 from yogi.core.contracts.timeframe import ITimeframeEngine
-from yogi.filter.engine import FilterEngine
+from yogi.filter import FilterEngine, create_default_filter_engine
 from yogi.ranking.engine import RankingEngine
 from yogi.results.assembler import ResultAssembler
 from yogi.results.formatter import ExportFormatter
@@ -106,6 +107,24 @@ class ColumnProjectingAssembler(IResultAssembler):
         )
 
 
+@dataclass
+class ScreeningTask:
+    """Request-scoped tracking record for in-flight and completed screening executions."""
+    request_id: str
+    status: str = "running"  # "running", "cancelling", "cancelled", "completed", "failed"
+    progress: float = 0.0    # 0.0 to 100.0
+    stage: str = "initializing"
+    message: str = "Screening in progress..."
+    processed_count: int = 0
+    total_count: int = 0
+    created_at: float = field(default_factory=time.time)
+    updated_at: float = field(default_factory=time.time)
+    cancel_requested: bool = False
+    cancelled_at: Optional[float] = None
+    completed_at: Optional[float] = None
+    error: Optional[str] = None
+
+
 class AppState:
     """Thread-safe dependency container and in-memory pre-calculated dataset cache."""
 
@@ -123,11 +142,27 @@ class AppState:
         initial_dataset: Optional[Mapping[str, Mapping[str, Any]]] = None,
         timeframe_engine: Optional[ITimeframeEngine] = None,
         metadata_repo: Optional[ISecurityMetadataRepository] = None,
+        autoload_cache: bool = False,
+        dataset_cache: Optional[IDatasetCache] = None,
+        bars_cache: Optional[IBarsCache] = None,
+        filter_rule: Optional[IFilterRule] = None,
+        condition_evaluators: Optional[Mapping[str, IConditionEvaluator]] = None,
     ) -> None:
         self._config = config if config is not None else EngineConfig()
         self._catalog = catalog if catalog is not None else load_mentor_presets()
         self._assembler = assembler if assembler is not None else ResultAssembler()
         self._formatter = formatter if formatter is not None else ExportFormatter()
+
+        # Cache persistence repositories (for fast startup and bar reuse)
+        self._dataset_cache = dataset_cache if dataset_cache is not None else DatasetCache()
+        self._bars_cache = bars_cache if bars_cache is not None else MarketBarsCache()
+        self._build_status: str = "IDLE"
+        self._build_progress: float = 0.0
+        self._build_stage: str = "idle"
+        self._build_error: Optional[str] = None
+        self._build_task: Optional[asyncio.Task] = None
+        self._build_thread: Optional[threading.Thread] = None
+        self._is_cached: bool = False
 
         # Retain configured live provider and bands repository keys for switching back from demo
         self._live_provider_key = (
@@ -137,49 +172,60 @@ class AppState:
             self._config.bands_repository if self._config.bands_repository not in ("demo",) else "csv"
         )
 
+        # Settings persistence (data/settings.json)
+        self._settings_file = get_data_dir() / "settings.json"
+        self._half_year_policy: str = "prototype"
+        self._load_settings()
+        if self._config.half_year_policy and self._config.half_year_policy != "prototype":
+            self._half_year_policy = self._config.half_year_policy
+
         if orchestrator is not None:
             self._orchestrator = orchestrator
+            if hasattr(self._orchestrator.timeframe_engine, "half_year_policy"):
+                self._orchestrator.timeframe_engine.half_year_policy = self._half_year_policy
+            if filter_rule is not None:
+                self._orchestrator.filter_rule = filter_rule
+            if condition_evaluators:
+                for c_type, evaluator in condition_evaluators.items():
+                    self.register_condition_evaluator(c_type, evaluator)
         else:
-            hub = RegistryHub()
-            # Register verified Core calculation modules
-            hub.calculations.register("bands", BandsCalculator())
-            hub.calculations.register("velocity", VelocityCalculator())
-            hub.calculations.register("impulse", ImpulseCalculator())
-            hub.calculations.register("trend", TrendCalculator())
-            hub.calculations.register("candles", CandleCalculator())
+            hub = create_default_registry_hub()
+            tf_engine = (
+                timeframe_engine
+                if timeframe_engine is not None
+                else TimeframeEngine(half_year_policy=self._half_year_policy)
+            )
+            if hasattr(tf_engine, "half_year_policy"):
+                tf_engine.half_year_policy = self._half_year_policy
 
-            # Register verified offline demo provider and bands repository
-            try:
-                demo_provider = DemoDataProvider()
-                demo_bands = DemoBandsRepository()
-                hub.providers.register("demo", demo_provider)
-                hub.bands.register("demo", demo_bands)
-            except Exception as exc:
-                logger.error("Failed to initialize demo capabilities: %s", exc)
-
-            # Register persistent bands repository (CSV/file-backed)
-            try:
-                from yogi.storage.bands import CsvBandsRepository
-                csv_bands = CsvBandsRepository()
-                hub.bands.register("csv", csv_bands)
-            except Exception as exc:
-                logger.warning("Failed to initialize CsvBandsRepository: %s", exc)
-
-            tf_engine = timeframe_engine if timeframe_engine is not None else TimeframeEngine()
+            f_rule = (
+                filter_rule
+                if filter_rule is not None
+                else create_default_filter_engine(evaluators=condition_evaluators)
+            )
 
             self._orchestrator = PipelineOrchestrator(
                 registry=hub,
-                filter_rule=FilterEngine(),
+                filter_rule=f_rule,
                 ranking_rule=RankingEngine(),
                 selection_rule=SelectionEngine(),
                 result_assembler=self._assembler,
                 timeframe_engine=tf_engine,
+                bars_cache=self._bars_cache,
             )
+            if filter_rule is not None and condition_evaluators:
+                for c_type, evaluator in condition_evaluators.items():
+                    self.register_condition_evaluator(c_type, evaluator)
 
         # Discretionary bands repository resolution (strictly through DI or Registry)
         self._bands_repo = bands_repo
-        if self._bands_repo is None and self._orchestrator.registry.bands.has(self._config.bands_repository):
+        if self._bands_repo is not None:
+            self._orchestrator.registry.bands.override(self._config.bands_repository, self._bands_repo)
+        elif self._orchestrator.registry.bands.has(self._config.bands_repository):
             self._bands_repo = self._orchestrator.registry.bands.get(self._config.bands_repository)
+
+        if provider is not None:
+            self._orchestrator.registry.providers.override(self._config.provider, provider)
 
         # Security metadata repository resolution (strictly through DI or storage/demo)
         self._metadata_repo = metadata_repo
@@ -193,7 +239,7 @@ class AppState:
             else:
                 try:
                     from yogi.storage.metadata import CsvMetadataRepository
-                    self._metadata_repo = CsvMetadataRepository(data_dir=Path("data"))
+                    self._metadata_repo = CsvMetadataRepository(data_dir=get_data_dir())
                 except Exception as exc:
                     logger.warning("Failed to initialize CsvMetadataRepository: %s", exc)
 
@@ -202,36 +248,33 @@ class AppState:
 
         # Presentation chart data service and race data service resolution (strictly through DI or Registry)
         self._chart_service = chart_service
+        self._chart_service_injected: bool = chart_service is not None
+        if self._chart_service is not None and getattr(self._chart_service, "bars_cache", None) is None and self._bars_cache is not None:
+            self._chart_service.bars_cache = self._bars_cache
         self._race_service = race_service
-        if (self._chart_service is None or self._race_service is None) and initial_dataset:
-            resolved_provider = provider
-            if resolved_provider is None and self._orchestrator.registry.providers.has(self._config.provider):
-                resolved_provider = self._orchestrator.registry.providers.get(self._config.provider)
-
-            if resolved_provider is not None:
-                if self._chart_service is None:
-                    self._chart_service = ChartDataService(
-                        provider=resolved_provider,
-                        timeframe_engine=self._orchestrator.timeframe_engine,
-                        bands_repo=self._bands_repo,
-                    )
-                if self._race_service is None:
-                    self._race_service = RaceDataService(
-                        provider=resolved_provider,
-                        dataset_provider=lambda: self._dataset,
-                    )
+        self._race_service_injected: bool = race_service is not None
+        if initial_dataset or provider is not None:
+            self._init_presentation_services(provider=provider)
 
         # In-memory dataset cache (strictly read-only views)
         if initial_dataset:
             self._dataset: Mapping[str, Mapping[str, Any]] = freeze_dataset(initial_dataset)
             self._last_built_at: Optional[datetime] = datetime.now(timezone.utc)
+            self._build_status = "READY"
+            self._build_stage = "Initialized with custom dataset"
+            self._is_cached = False
+        elif autoload_cache:
+            loaded = self.load_persisted_cache()
+            if not loaded:
+                self._dataset = MappingProxyType({})
+                self._last_built_at = None
         else:
             self._dataset = MappingProxyType({})
             self._last_built_at = None
 
         # User-defined presets storage (in-memory + local JSON fallback)
         self._user_presets: dict[str, dict[str, Any]] = {}
-        self._presets_file = Path("data/user_presets.json")
+        self._presets_file = get_data_dir() / "user_presets.json"
         self._load_user_presets()
 
         # Ephemeral bounded LRU cache for on-demand stock detail panels (YOGI-F05)
@@ -239,6 +282,11 @@ class AppState:
         self._panel_cache_max_size: int = 100
         self._panel_cache_provider: str = self._config.provider
         self._panel_cache_lock = threading.Lock()
+        self._dirty_symbols: set[str] = set()
+
+        # Request-scoped active and historical screening tasks
+        self._screening_tasks: dict[str, ScreeningTask] = {}
+        self._screening_tasks_lock = threading.Lock()
 
         self._lock = asyncio.Lock()
 
@@ -251,6 +299,19 @@ class AppState:
     def clear_panel_cache(self) -> None:
         """Clear the on-demand stock detail panel cache."""
         with self._panel_cache_lock:
+            self._panel_cache.clear()
+
+    def invalidate_symbol(self, symbol: str) -> None:
+        """Invalidate cached panel and mark symbol dirty for on-demand recalculation."""
+        sym = symbol.strip().upper()
+        with self._panel_cache_lock:
+            self._dirty_symbols.add(sym)
+            self._panel_cache.pop(sym, None)
+
+    def invalidate_all_symbols(self) -> None:
+        """Invalidate all cached panels and mark cohort dirty when global configuration changes."""
+        with self._panel_cache_lock:
+            self._dirty_symbols.update(self._dataset.keys())
             self._panel_cache.clear()
 
     @property
@@ -272,6 +333,50 @@ class AppState:
         return self._catalog
 
     @property
+    def filter_rule(self) -> Optional[IFilterRule]:
+        """Return the active filter rule from the orchestrator."""
+        return self._orchestrator.filter_rule if self._orchestrator else None
+
+    def register_condition_evaluator(self, condition_type: str, evaluator: IConditionEvaluator) -> None:
+        """Register a condition evaluator on the active orchestrator's filter rule."""
+        if self._orchestrator and hasattr(self._orchestrator.filter_rule, "register_evaluator"):
+            self._orchestrator.filter_rule.register_evaluator(condition_type, evaluator)
+        else:
+            raise AttributeError("Active orchestrator filter_rule does not support evaluator registration")
+
+    def _init_presentation_services(self, provider: Optional[IDataProvider] = None) -> None:
+        """Initialize presentation chart and race data services strictly through DI or Registry."""
+        # 1. Discretionary bands repository resolution
+        if self._bands_repo is None and self._orchestrator.registry.bands.has(self._config.bands_repository):
+            self._bands_repo = self._orchestrator.registry.bands.get(self._config.bands_repository)
+
+        # 2. Provider resolution
+        provider_key = self._config.provider
+        resolved_provider = provider
+        if resolved_provider is None and self._orchestrator.registry.providers.has(provider_key):
+            resolved_provider = self._orchestrator.registry.providers.get(provider_key)
+
+        # 3. Presentation services instantiation
+        if resolved_provider is not None:
+            if self._chart_service is None or self._chart_service.provider is not resolved_provider:
+                self._chart_service = ChartDataService(
+                    provider=resolved_provider,
+                    timeframe_engine=self._orchestrator.timeframe_engine,
+                    bands_repo=self.bands_repo,
+                    bars_cache=self._bars_cache,
+                )
+            elif self._chart_service.bands_repo is None and self.bands_repo is not None:
+                self._chart_service.bands_repo = self.bands_repo
+            if self._chart_service.bars_cache is None and self._bars_cache is not None:
+                self._chart_service.bars_cache = self._bars_cache
+
+            if self._race_service is None or self._race_service.provider is not resolved_provider:
+                self._race_service = RaceDataService(
+                    provider=resolved_provider,
+                    dataset_provider=lambda: self._dataset,
+                )
+
+    @property
     def bands_repo(self) -> Optional[IBandsRepository]:
         return self._bands_repo
 
@@ -282,18 +387,35 @@ class AppState:
 
     @property
     def chart_service(self) -> Optional[ChartDataService]:
+        if self._chart_service_injected:
+            return self._chart_service
+        provider_key = self._config.provider
+        if self._chart_service is None and len(self._dataset) > 0:
+            if self._orchestrator.registry.providers.has(provider_key):
+                resolved_provider = self._orchestrator.registry.providers.get(provider_key)
+                self._init_presentation_services(provider=resolved_provider)
+        elif self._chart_service is not None:
+            if self._orchestrator.registry.providers.has(provider_key):
+                resolved_provider = self._orchestrator.registry.providers.get(provider_key)
+                if self._chart_service.provider is not resolved_provider:
+                    self._init_presentation_services(provider=resolved_provider)
+                elif self._chart_service.bands_repo is None and self.bands_repo is not None:
+                    self._chart_service.bands_repo = self.bands_repo
+            if getattr(self._chart_service, "bars_cache", None) is None and self._bars_cache is not None:
+                self._chart_service.bars_cache = self._bars_cache
         return self._chart_service
 
     @property
     def race_service(self) -> Optional[RaceDataService]:
         """Return presentation race data service if configured."""
-        if self._race_service is None:
-            if self._orchestrator.registry.providers.has(self._config.provider):
-                resolved_provider = self._orchestrator.registry.providers.get(self._config.provider)
-                self._race_service = RaceDataService(
-                    provider=resolved_provider,
-                    dataset_provider=lambda: self._dataset,
-                )
+        if self._race_service_injected:
+            return self._race_service
+        if self._race_service is not None:
+            provider_key = self._config.provider
+            if self._orchestrator.registry.providers.has(provider_key):
+                resolved_provider = self._orchestrator.registry.providers.get(provider_key)
+                if self._race_service.provider is not resolved_provider:
+                    self._init_presentation_services(provider=resolved_provider)
         return self._race_service
 
     @property
@@ -313,14 +435,141 @@ class AppState:
         """Return True if active configuration uses the demo data provider."""
         return self._config.provider == "demo"
 
+    @property
+    def is_cached(self) -> bool:
+        """Return True if active dataset was loaded from local persistence cache."""
+        return self._is_cached
+
+    @property
+    def build_status(self) -> str:
+        """Return current rebuild lifecycle state: IDLE, BUILDING, READY, or FAILED."""
+        return self._build_status
+
+    @property
+    def build_progress(self) -> float:
+        """Return measurable rebuild progress from 0.0 to 1.0."""
+        return self._build_progress
+
+    @property
+    def build_stage(self) -> str:
+        """Return human-readable description of current build stage."""
+        return self._build_stage
+
+    @property
+    def build_error(self) -> Optional[str]:
+        """Return failure message if last build failed, otherwise None."""
+        return self._build_error
+
+    @property
+    def is_building(self) -> bool:
+        """Return True if a background rebuild job is actively executing."""
+        if self._build_thread is not None and self._build_thread.is_alive():
+            return True
+        return self._build_status == "BUILDING"
+
+    @property
+    def build_thread(self) -> Optional[threading.Thread]:
+        """Return the active background rebuild thread, if any."""
+        return self._build_thread
+
+    @property
+    def dataset_cache(self) -> IDatasetCache:
+        return self._dataset_cache
+
+    @property
+    def bars_cache(self) -> IBarsCache:
+        return self._bars_cache
+
+    def load_persisted_cache(self) -> bool:
+        """Attempt to load valid persisted dataset from disk for fast startup."""
+        if self._config.provider == "demo":
+            return False
+        cached = self._dataset_cache.load(
+            exchange=self._config.exchange,
+            provider=self._config.provider,
+            half_year_policy=self._half_year_policy,
+        )
+        if cached and "dataset" in cached and cached["dataset"]:
+            self._dataset = freeze_dataset(cached["dataset"])
+            self._last_built_at = (
+                datetime.fromisoformat(cached["saved_at"])
+                if cached.get("saved_at")
+                else datetime.now(timezone.utc)
+            )
+            self._is_cached = True
+            self._build_status = "READY"
+            self._build_stage = "Loaded from local cache"
+            logger.info(
+                "AppState: loaded valid persisted dataset (%d stocks) in fast startup mode.",
+                len(self._dataset),
+            )
+            if self._bands_repo is None and self._orchestrator.registry.bands.has(self._config.bands_repository):
+                self._bands_repo = self._orchestrator.registry.bands.get(self._config.bands_repository)
+
+            self._init_presentation_services()
+            return True
+        return False
+
+    def start_background_rebuild(
+        self,
+        symbols: Optional[Sequence[str]] = None,
+        symbol_limit: Optional[int] = None,
+        provider: Optional[str] = None,
+        bands_repository: Optional[str] = None,
+        force_refresh_bars: bool = False,
+    ) -> Optional[threading.Thread]:
+        """Initiate an asynchronous background dataset rebuild on a dedicated daemon thread."""
+        if self.is_building:
+            logger.warning("AppState: Rebuild already in progress. Ignoring duplicate start request.")
+            return self._build_thread
+
+        self._build_status = "BUILDING"
+        self._build_progress = 0.0
+        self._build_stage = "Initializing background rebuild..."
+        self._build_error = None
+
+        def _worker() -> None:
+            try:
+                asyncio.run(
+                    self.refresh(
+                        symbols=symbols,
+                        symbol_limit=symbol_limit,
+                        provider=provider,
+                        bands_repository=bands_repository,
+                        force_refresh_bars=force_refresh_bars,
+                    )
+                )
+            except Exception as exc:
+                logger.error("AppState: Background rebuild encountered error: %s", exc)
+                self._build_status = "FAILED"
+                self._build_error = str(exc)
+                self._build_stage = f"Failed: {exc}"
+            finally:
+                if self._build_status != "FAILED":
+                    self._build_status = "READY"
+                    self._build_progress = 1.0
+                    self._build_stage = "Build complete"
+                self._build_thread = None
+
+        thread = threading.Thread(target=_worker, name="yogi-background-rebuild", daemon=True)
+        self._build_thread = thread
+        thread.start()
+        return thread
+
     async def refresh(
         self,
         symbols: Optional[Sequence[str]] = None,
         symbol_limit: Optional[int] = None,
         provider: Optional[str] = None,
         bands_repository: Optional[str] = None,
+        force_refresh_bars: bool = False,
     ) -> None:
         """Rebuild feature dataset asynchronously and replace the reference atomically."""
+        t_refresh_start = time.perf_counter()
+        self._build_status = "BUILDING"
+        self._build_progress = 0.0
+        self._build_stage = "Rebuilding dataset..."
+        self._build_error = None
         async with self._lock:
             # 1. Resolve target provider and bands repository with explicit demo/live switching support
             if provider == "demo":
@@ -348,45 +597,20 @@ class AppState:
                     else ("demo" if target_provider == "demo" else "csv")
                 )
 
-            # 2. Guarantee demo capabilities are registered in the active registry if demo was requested
-            if target_provider == "demo":
-                if not self._orchestrator.registry.providers.has("demo"):
-                    self._orchestrator.registry.providers.register("demo", DemoDataProvider())
-                if not self._orchestrator.registry.bands.has("demo"):
-                    self._orchestrator.registry.bands.register("demo", DemoBandsRepository())
-
-            # 3. Dynamic lazy registration for live provider (yfinance) if requested and not yet in registry
-            if target_provider == "yfinance" and not self._orchestrator.registry.providers.has("yfinance"):
-                try:
-                    from yogi.data.providers.yfinance import YFinanceDataProvider
-                    self._orchestrator.registry.providers.register("yfinance", YFinanceDataProvider())
-                except Exception as exc:
-                    logger.warning("Could not register live YFinanceDataProvider: %s", exc)
-
-            if target_bands_repo in ("csv", "excel") and not self._orchestrator.registry.bands.has(target_bands_repo):
-                try:
-                    from yogi.storage.bands import CsvBandsRepository
-                    csv_repo = CsvBandsRepository()
-                    self._orchestrator.registry.bands.register("csv", csv_repo)
-                    self._orchestrator.registry.bands.register("excel", csv_repo)
-                except Exception as exc:
-                    logger.warning("Could not register persistent CsvBandsRepository: %s", exc)
-
-            # Synchronize metadata repository between Demo and Live
+            # Synchronize metadata repository between Demo and Live without premature mutation
+            target_meta_repo = self._metadata_repo
             if target_provider == "demo" and not isinstance(self._metadata_repo, DemoMetadataRepository if "DemoMetadataRepository" in globals() else object):
                 try:
                     from yogi.cockpit.demo import DemoMetadataRepository
-                    self._metadata_repo = DemoMetadataRepository()
-                    self._orchestrator.metadata_repository = self._metadata_repo
+                    target_meta_repo = DemoMetadataRepository()
                 except Exception as exc:
-                    logger.warning("Could not switch to DemoMetadataRepository: %s", exc)
+                    logger.warning("Could not instantiate DemoMetadataRepository: %s", exc)
             elif self._config.provider == "demo" and target_provider != "demo":
                 try:
                     from yogi.storage.metadata import CsvMetadataRepository
-                    self._metadata_repo = CsvMetadataRepository(data_dir=Path("data"))
-                    self._orchestrator.metadata_repository = self._metadata_repo
+                    target_meta_repo = CsvMetadataRepository(data_dir=get_data_dir())
                 except Exception as exc:
-                    logger.warning("Could not switch to CsvMetadataRepository: %s", exc)
+                    logger.warning("Could not instantiate CsvMetadataRepository: %s", exc)
 
             # 4. Determine target symbols (full universe / configured symbols - NO INFY WORKAROUND, NO ARTIFICIAL LIMITATION)
             if symbols is not None:
@@ -406,18 +630,114 @@ class AppState:
                 symbol_limit=symbol_limit if symbol_limit is not None else self._config.symbol_limit,
                 symbols=target_symbols,
                 provider_options=self._config.provider_options,
+                half_year_policy=self._half_year_policy,
+            )
+
+            logger.info(
+                "AppState.refresh: starting dataset rebuild (target_provider='%s', target_bands='%s', symbols_count=%s, symbol_limit=%s)",
+                target_provider,
+                target_bands_repo,
+                len(target_symbols) if target_symbols is not None else "universe",
+                symbol_limit,
             )
 
             # Build off-thread using canonical PipelineOrchestrator
-            raw_dataset = await asyncio.to_thread(self._orchestrator.build_dataset, active_config)
+            build_kwargs = {}
+            try:
+                sig = inspect.signature(self._orchestrator.build_dataset)
+                if "metadata_repository" in sig.parameters or any(
+                    p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()
+                ):
+                    build_kwargs["metadata_repository"] = target_meta_repo
+                if "bars_cache" in sig.parameters:
+                    build_kwargs["bars_cache"] = self._bars_cache
+                if "force_refresh_bars" in sig.parameters:
+                    build_kwargs["force_refresh_bars"] = force_refresh_bars
+                if "progress_callback" in sig.parameters:
+                    def _on_prog(stage: str, pct: float, done: Optional[int] = None, total: Optional[int] = None) -> None:
+                        self._build_stage = stage
+                        self._build_progress = round(pct, 3)
+                    build_kwargs["progress_callback"] = _on_prog
+            except (ValueError, TypeError):
+                pass
 
-            # Freeze deeply and atomically swap pointer
+            try:
+                raw_dataset = await asyncio.to_thread(
+                    self._orchestrator.build_dataset,
+                    active_config,
+                    **build_kwargs,
+                )
+            except Exception as exc:
+                elapsed = time.perf_counter() - t_refresh_start
+                logger.error(
+                    "AppState.refresh: build_dataset failed after %.2fs: %s. Preserving current dataset (%s, %d stocks).",
+                    elapsed,
+                    exc,
+                    "demo" if self.is_demo else self._config.provider,
+                    len(self._dataset),
+                )
+                self._build_status = "FAILED"
+                self._build_error = str(exc)
+                self._build_stage = f"Failed: {exc}"
+                raise
+
+            # Preserve state integrity: empty rebuild must not be reported as a successful LIVE transition
+            if not raw_dataset and target_provider != "demo":
+                from yogi.data.providers.exceptions import DataProviderError
+                elapsed = time.perf_counter() - t_refresh_start
+                logger.error(
+                    "AppState.refresh: provider '%s' produced no usable records after %.2fs. Preserving current dataset (%s, %d stocks).",
+                    target_provider,
+                    elapsed,
+                    "demo" if self.is_demo else self._config.provider,
+                    len(self._dataset),
+                )
+                self._build_status = "FAILED"
+                self._build_error = f"No usable records produced by provider '{target_provider}'."
+                self._build_stage = "Failed: No usable records"
+                raise DataProviderError(
+                    f"Live dataset rebuild failed: No usable records produced by provider '{target_provider}'."
+                )
+
+            # Freeze deeply and atomically swap pointer and active components
             self._dataset = freeze_dataset(raw_dataset)
             self._last_built_at = datetime.now(timezone.utc)
             self._config = active_config
+            self._metadata_repo = target_meta_repo
+            self._orchestrator.metadata_repository = target_meta_repo
 
-            # Clear isolated panel cache to prevent cross-contamination between Demo and Live
+            # Persist live dataset to disk
+            if target_provider != "demo":
+                try:
+                    self._dataset_cache.save(
+                        dataset=raw_dataset,
+                        exchange=active_config.exchange,
+                        provider=active_config.provider,
+                        half_year_policy=self._half_year_policy,
+                        historical_years=active_config.historical_years,
+                    )
+                except Exception as cache_save_err:
+                    logger.warning("AppState: Could not persist dataset to cache: %s", cache_save_err)
+                self._is_cached = False
+            else:
+                self._is_cached = False
+
+            self._build_status = "READY"
+            self._build_progress = 1.0
+            self._build_stage = "Build complete"
+            self._build_error = None
+
+            elapsed = time.perf_counter() - t_refresh_start
+            logger.info(
+                "AppState.refresh: atomically swapped active dataset to '%s' (%d stocks) in %.2fs",
+                active_config.provider,
+                len(self._dataset),
+                elapsed,
+            )
+
+            # Clear isolated panel cache and reset dirty symbols
             with self._panel_cache_lock:
+                self._dirty_symbols.clear()
                 self._panel_cache.clear()
                 self._panel_cache_provider = active_config.provider
 
@@ -430,6 +750,7 @@ class AppState:
                     provider=resolved_provider,
                     timeframe_engine=self._orchestrator.timeframe_engine,
                     bands_repo=self._bands_repo,
+                    bars_cache=self._bars_cache,
                 )
                 self._race_service = RaceDataService(
                     provider=resolved_provider,
@@ -477,6 +798,94 @@ class AppState:
             self._save_user_presets()
             return True
         return False
+
+    @property
+    def half_year_policy(self) -> str:
+        """Return the active half-year timeframe policy ('prototype' or 'calendar')."""
+        return self._half_year_policy
+
+    def _load_settings(self) -> None:
+        """Load persistent cockpit application settings from storage file."""
+        try:
+            if self._settings_file.is_file():
+                content = self._settings_file.read_text(encoding="utf-8")
+                data = json.loads(content)
+                if isinstance(data, dict):
+                    policy = data.get("half_year_policy")
+                    if policy in ("prototype", "calendar"):
+                        self._half_year_policy = policy
+        except Exception as exc:
+            logger.warning("Could not load cockpit settings: %s", exc)
+
+    def _save_settings(self) -> None:
+        """Persist cockpit application settings atomically to local storage."""
+        try:
+            self._settings_file.parent.mkdir(parents=True, exist_ok=True)
+            payload = {
+                "half_year_policy": self._half_year_policy,
+            }
+            tmp_file = self._settings_file.with_suffix(".tmp")
+            tmp_file.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+            os.replace(tmp_file, self._settings_file)
+        except Exception as exc:
+            logger.warning("Could not persist cockpit settings: %s", exc)
+
+    async def set_half_year_policy(self, policy: str) -> str:
+        """Update and persist the active half-year timeframe policy."""
+        if policy not in ("prototype", "calendar"):
+            raise ValueError(
+                f"Invalid half_year_policy '{policy}'. Must be 'prototype' or 'calendar'."
+            )
+
+        async with self._lock:
+            self._half_year_policy = policy
+            self._save_settings()
+
+            # Synchronize active TimeframeEngine
+            if hasattr(self._orchestrator.timeframe_engine, "half_year_policy"):
+                self._orchestrator.timeframe_engine.half_year_policy = policy
+
+            # Clear isolated panel cache
+            with self._panel_cache_lock:
+                self._panel_cache.clear()
+
+            # If dataset is currently populated, rebuild it with the new policy
+            if self._dataset:
+                active_config = EngineConfig(
+                    provider=self._config.provider,
+                    bands_repository=self._config.bands_repository,
+                    calculation_modules=self._config.calculation_modules,
+                    exchange=self._config.exchange,
+                    timeframes=self._config.timeframes,
+                    historical_years=self._config.historical_years,
+                    symbol_limit=self._config.symbol_limit,
+                    symbols=self._config.symbols,
+                    provider_options=dict(self._config.provider_options),
+                    half_year_policy=policy,
+                )
+                raw_dataset = await asyncio.to_thread(
+                    self._orchestrator.build_dataset,
+                    active_config,
+                    bars_cache=self._bars_cache,
+                )
+                self._dataset = freeze_dataset(raw_dataset)
+                self._last_built_at = datetime.now(timezone.utc)
+                self._config = active_config
+                if active_config.provider != "demo":
+                    try:
+                        self._dataset_cache.save(
+                            dataset=raw_dataset,
+                            exchange=active_config.exchange,
+                            provider=active_config.provider,
+                            half_year_policy=policy,
+                            historical_years=active_config.historical_years,
+                        )
+                    except Exception as cache_save_err:
+                        logger.warning("AppState: Could not persist dataset to cache: %s", cache_save_err)
+                    self._is_cached = False
+
+
+            return self._half_year_policy
 
     def get_strategy_detail(self, name: str) -> Optional[StrategyDetailOut]:
         """Return the complete specification of a mentor preset or registered strategy."""
@@ -543,6 +952,8 @@ class AppState:
             "DROC": row.get("DROC"),
             "WROC": row.get("WROC"),
             "MROC": row.get("MROC"),
+            "QROC": row.get("QROC"),
+            "HROC": row.get("HROC"),
             "M_CUR": row.get("M_CUR"),
             "YROC": row.get("YROC"),
             "S4": row.get("S4"),
@@ -561,6 +972,7 @@ class AppState:
             "DIM_D": row.get("DIM_D"),
             "ADX_D": row.get("ADX_D"),
             "DMI_STATE_D": row.get("DMI_STATE_D"),
+            "EMA_UP_COUNT": row.get("EMA_UP_COUNT"),
         }
 
         # Multi-timeframe DMI trend & ADX enrichment for drawer matrix
@@ -619,10 +1031,14 @@ class AppState:
         if not sym:
             return None
 
-        # 1. Instant lookup in materialized screening cohort
-        row = self._dataset.get(sym)
-        if row is not None:
-            return self._row_to_panel(sym, row)
+        # 1. Instant lookup in materialized screening cohort (if not modified)
+        with self._panel_cache_lock:
+            is_dirty = sym in self._dirty_symbols
+
+        if not is_dirty:
+            row = self._dataset.get(sym)
+            if row is not None:
+                return self._row_to_panel(sym, row)
 
         # 2. Check bounded LRU panel cache (with Demo/Live isolation check)
         with self._panel_cache_lock:
@@ -637,20 +1053,6 @@ class AppState:
         # 3. Canonical on-demand execution via PipelineOrchestrator
         provider_key = self._config.provider
 
-        # Lazy registration for demo or live providers if missing from registry
-        if provider_key == "demo" and not self._orchestrator.registry.providers.has("demo"):
-            try:
-                self._orchestrator.registry.providers.register("demo", DemoDataProvider())
-            except Exception as exc:
-                logger.warning("Could not lazy-register DemoDataProvider: %s", exc)
-
-        if provider_key == "yfinance" and not self._orchestrator.registry.providers.has(provider_key):
-            try:
-                from yogi.data.providers.yfinance import YFinanceDataProvider
-                self._orchestrator.registry.providers.register(provider_key, YFinanceDataProvider())
-            except Exception as exc:
-                logger.warning("Could not lazy-register YFinanceDataProvider for '%s': %s", provider_key, exc)
-
         if not self._orchestrator.registry.providers.has(provider_key):
             logger.warning("Active provider '%s' not registered in orchestrator registry", provider_key)
             return None
@@ -662,12 +1064,8 @@ class AppState:
             elif self._bands_repo is not None:
                 bands_repo_name = getattr(self._bands_repo, "name", "demo")
             else:
-                try:
-                    self._orchestrator.registry.bands.register("demo", DemoBandsRepository())
-                    bands_repo_name = "demo"
-                except Exception as exc:
-                    logger.warning("Could not lazy-register DemoBandsRepository: %s", exc)
-                    return None
+                logger.warning("Active bands repository '%s' not registered in orchestrator registry", bands_repo_name)
+                return None
 
         calc_modules = tuple(
             m for m in self._config.calculation_modules
@@ -683,11 +1081,16 @@ class AppState:
             historical_years=self._config.historical_years,
             symbols=[sym],
             provider_options=self._config.provider_options,
+            half_year_policy=self._half_year_policy,
         )
 
         # Canonical execution through PipelineOrchestrator (do not catch provider exceptions here;
         # let them propagate un-cached to router for explicit HTTP 401/429/503 status mapping)
-        records = self._orchestrator.build_dataset(single_config)
+        records = self._orchestrator.build_dataset(
+            single_config,
+            bars_cache=self._bars_cache,
+            metadata_repository=self._metadata_repo,
+        )
         single_row = records.get(sym)
         if not single_row or single_row.get("price") is None:
             return None
@@ -704,5 +1107,149 @@ class AppState:
                 self._panel_cache[sym] = panel
 
         return panel
+
+    # -----------------------------------------------------------------------
+    # Request-Scoped Screening Task & Cancellation Management
+    # -----------------------------------------------------------------------
+
+    def register_screening_task(self, request_id: str, total_count: int = 0) -> ScreeningTask:
+        """Register and initialize a new screening execution task."""
+        with self._screening_tasks_lock:
+            self._cleanup_old_screening_tasks()
+            task = ScreeningTask(
+                request_id=request_id,
+                status="running",
+                progress=0.0,
+                stage="initializing",
+                message="Screening started...",
+                processed_count=0,
+                total_count=total_count,
+            )
+            self._screening_tasks[request_id] = task
+            return task
+
+    def update_screening_progress(
+        self,
+        request_id: str,
+        progress: float,
+        stage: str,
+        message: str,
+        processed_count: int = 0,
+        total_count: int = 0,
+    ) -> None:
+        """Update screening task progress monotonically."""
+        with self._screening_tasks_lock:
+            task = self._screening_tasks.get(request_id)
+            if not task or task.status in ("completed", "cancelled"):
+                return
+            # Guarantee monotonically non-decreasing progress clamped between 0.0 and 100.0
+            clamped = min(100.0, max(task.progress, float(progress)))
+            task.progress = clamped
+            task.stage = stage
+            task.message = message
+            task.processed_count = processed_count
+            if total_count > 0:
+                task.total_count = total_count
+            task.updated_at = time.time()
+
+    def request_screening_cancellation(self, request_id: str) -> tuple[str, str]:
+        """Request graceful cancellation of a screening task.
+        
+        Returns (status, message).
+        Guarantees that a task that has already completed successfully is not marked cancelled.
+        """
+        with self._screening_tasks_lock:
+            task = self._screening_tasks.get(request_id)
+            if task is None:
+                return "not_found", f"Screening request '{request_id}' not found."
+            if task.status == "completed":
+                return "completed", "Screening request has already completed successfully."
+            if task.status in ("cancelling", "cancelled"):
+                return task.status, "Screening cancellation already requested."
+
+            task.cancel_requested = True
+            task.status = "cancelling"
+            task.stage = "cancelling"
+            task.message = "Screening cancellation requested."
+            task.cancelled_at = time.time()
+            task.updated_at = time.time()
+            return "cancelling", "Screening cancellation requested."
+
+    def is_screening_cancelled(self, request_id: str) -> bool:
+        """Check whether cancellation has been requested for a given screening task."""
+        with self._screening_tasks_lock:
+            task = self._screening_tasks.get(request_id)
+            return task.cancel_requested if task else False
+
+    def complete_screening_task(self, request_id: str) -> None:
+        """Mark a screening task as completed successfully at 100%."""
+        with self._screening_tasks_lock:
+            task = self._screening_tasks.get(request_id)
+            if not task or task.status in ("cancelled", "cancelling"):
+                return
+            task.status = "completed"
+            task.progress = 100.0
+            task.stage = "completed"
+            task.message = "Screening completed successfully."
+            task.completed_at = time.time()
+            task.updated_at = time.time()
+
+    def cancel_screening_task(self, request_id: str) -> None:
+        """Mark a screening task as definitively cancelled."""
+        with self._screening_tasks_lock:
+            task = self._screening_tasks.get(request_id)
+            if not task:
+                return
+            task.status = "cancelled"
+            task.stage = "cancelled"
+            task.message = "Screening cancelled by user."
+            task.cancelled_at = time.time()
+            task.updated_at = time.time()
+
+    def fail_screening_task(self, request_id: str, error_msg: str) -> None:
+        """Mark a screening task as failed."""
+        with self._screening_tasks_lock:
+            task = self._screening_tasks.get(request_id)
+            if not task:
+                return
+            task.status = "failed"
+            task.stage = "failed"
+            task.message = f"Screening failed: {error_msg}"
+            task.error = error_msg
+            task.updated_at = time.time()
+
+    def get_screening_task(self, request_id: str) -> Optional[ScreeningTask]:
+        """Retrieve a thread-safe snapshot of a screening task if it exists."""
+        with self._screening_tasks_lock:
+            task = self._screening_tasks.get(request_id)
+            if task is None:
+                return None
+            return ScreeningTask(
+                request_id=task.request_id,
+                status=task.status,
+                progress=task.progress,
+                stage=task.stage,
+                message=task.message,
+                processed_count=task.processed_count,
+                total_count=task.total_count,
+                created_at=task.created_at,
+                updated_at=task.updated_at,
+                cancel_requested=task.cancel_requested,
+                cancelled_at=task.cancelled_at,
+                completed_at=task.completed_at,
+                error=task.error,
+            )
+
+    def _cleanup_old_screening_tasks(self, max_age_seconds: float = 600.0, max_entries: int = 100) -> None:
+        """Remove finished tasks older than max_age_seconds when entries exceed limit."""
+        now = time.time()
+        if len(self._screening_tasks) > max_entries:
+            expired = [
+                k for k, t in self._screening_tasks.items()
+                if (now - t.updated_at) > max_age_seconds and t.status in ("completed", "cancelled", "failed")
+            ]
+            for k in expired:
+                del self._screening_tasks[k]
+
 
 

@@ -41,14 +41,19 @@ class CapabilityRegistry(Generic[T]):
         self._instances: dict[str, T] = {}
         self._factories: dict[str, Callable[[], T]] = {}
 
-    def register(self, key: str, instance: T) -> None:
+    def register(self, key: str, instance: T, *, allow_override: bool = False) -> None:
         """Register an implementation instance under a unique key.
 
+        Args:
+            key: Unique key for the implementation.
+            instance: Implementation instance satisfying contract_type.
+            allow_override: If True, allow replacing an existing instance or factory under key.
+
         Raises:
-            DuplicateRegistrationError: If the key is already registered.
+            DuplicateRegistrationError: If the key is already registered and allow_override is False.
             TypeError: If contract_type is set and instance does not satisfy it.
         """
-        if self.has(key):
+        if not allow_override and self.has(key):
             raise DuplicateRegistrationError(
                 f"Duplicate registration for key '{key}' in '{self.capability_name}' registry."
             )
@@ -57,25 +62,49 @@ class CapabilityRegistry(Generic[T]):
                 f"Instance registered under '{key}' must implement {self.contract_type.__name__}, "
                 f"got {type(instance).__name__}."
             )
+        if allow_override:
+            self._factories.pop(key, None)
         self._instances[key] = instance
 
-    def register_factory(self, key: str, factory: Callable[[], T]) -> None:
+    def register_factory(
+        self, key: str, factory: Callable[[], T], *, allow_override: bool = False
+    ) -> None:
         """Register a lazy factory under a unique key.
 
         The factory is NOT invoked during registration; it is executed only when
         the key is first requested via get().
 
+        Args:
+            key: Unique key for the implementation.
+            factory: Callable returning an instance satisfying contract_type.
+            allow_override: If True, allow replacing an existing instance or factory under key.
+
         Raises:
-            DuplicateRegistrationError: If the key is already registered.
+            DuplicateRegistrationError: If the key is already registered and allow_override is False.
             TypeError: If factory is not callable.
         """
-        if self.has(key):
+        if not allow_override and self.has(key):
             raise DuplicateRegistrationError(
                 f"Duplicate registration for key '{key}' in '{self.capability_name}' registry."
             )
         if not callable(factory):
             raise TypeError(f"Factory for key '{key}' must be callable.")
+        if allow_override:
+            self._instances.pop(key, None)
         self._factories[key] = factory
+
+    def override(self, key: str, instance: T) -> None:
+        """Explicitly override or replace an existing registration or factory with an instance."""
+        self.register(key, instance, allow_override=True)
+
+    def override_factory(self, key: str, factory: Callable[[], T]) -> None:
+        """Explicitly override or replace an existing registration or factory with a new factory."""
+        self.register_factory(key, factory, allow_override=True)
+
+    def unregister(self, key: str) -> None:
+        """Remove a registered instance or factory if present."""
+        self._instances.pop(key, None)
+        self._factories.pop(key, None)
 
     def has(self, key: str) -> bool:
         """Return True if the key is registered (as an instance or factory)."""

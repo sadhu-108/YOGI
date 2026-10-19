@@ -5,13 +5,7 @@ from yogi.data.providers.exceptions import (
     DataProviderAuthenticationError,
     DataProviderError,
 )
-from yogi.data.providers.yfinance import (
-    INDIAN_TRADING_HOLIDAYS,
-    YFinanceDataProvider,
-    yf_ticker,
-)
-from yogi.data.providers.zerodha import ZerodhaDataProvider
-
+from yogi.market.calendar import INDIAN_TRADING_HOLIDAYS
 __all__ = [
     "DataProviderError",
     "DataProviderAuthenticationError",
@@ -21,3 +15,15 @@ __all__ = [
     "yf_ticker",
     "INDIAN_TRADING_HOLIDAYS",
 ]
+
+
+def __getattr__(name: str):
+    if name in ("YFinanceDataProvider", "yf_ticker"):
+        from yogi.data.providers.yfinance import YFinanceDataProvider, yf_ticker
+        mapping = {"YFinanceDataProvider": YFinanceDataProvider, "yf_ticker": yf_ticker}
+        return mapping[name]
+    if name == "ZerodhaDataProvider":
+        from yogi.data.providers.zerodha import ZerodhaDataProvider
+        return ZerodhaDataProvider
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+

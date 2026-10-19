@@ -4,9 +4,9 @@ Implements the IDataProvider contract using Kite Connect API abstractions
 and canonical normalizers. Supports offline testing via dependency injection.
 """
 
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 import os
-from typing import Any, Callable, Mapping, Optional, Sequence
+from typing import Any, Callable, Mapping, Optional, Sequence, Union
 
 from yogi.core.contracts.market_data import MarketBar, TickData
 from yogi.core.contracts.provider import IDataProvider, ProviderHealth
@@ -18,7 +18,7 @@ from yogi.data.providers.exceptions import (
     DataProviderAuthenticationError,
     DataProviderError,
 )
-from yogi.data.providers.yfinance import INDIAN_TRADING_HOLIDAYS
+from yogi.market.calendar import INDIAN_TRADING_HOLIDAYS
 
 DEFAULT_HEALTH_SYMBOL: str = "RELIANCE"
 
@@ -129,10 +129,13 @@ class ZerodhaDataProvider(IDataProvider):
         symbol: str,
         exchange: str = "NSE",
         years: int = 10,
+        start_date: Optional[Union[datetime, date, str]] = None,
+        end_date: Optional[Union[datetime, date, str]] = None,
     ) -> Sequence[MarketBar]:
         """Return historical daily OHLCV bars for a single symbol.
 
         Raises:
+            ValueError: If date range is invalid (start >= end, missing start when end provided, etc.).
             DataProviderAuthenticationError: If Zerodha authentication or token fails.
             DataProviderError: If external vendor call fails due to network or API outage.
             TypeError / AttributeError: Re-raised directly if programming errors occur.
@@ -142,8 +145,28 @@ class ZerodhaDataProvider(IDataProvider):
         if tok is None:
             return ()
 
-        to_dt = datetime.now()
-        from_dt = to_dt - timedelta(days=365 * years)
+        if start_date is not None or end_date is not None:
+            if start_date is None and end_date is not None:
+                raise ValueError("Cannot specify end_date without start_date; start_date is required")
+
+            from yogi.market.calendar import parse_date_boundary
+            dt_start, _ = parse_date_boundary(start_date, "start_date")
+            dt_end, _ = parse_date_boundary(end_date, "end_date") if end_date is not None else (None, None)
+
+            if dt_end is not None:
+                if (dt_start.tzinfo is None) != (dt_end.tzinfo is None):
+                    raise ValueError("Cannot compare timezone-aware and timezone-naive date boundaries")
+                if dt_start >= dt_end:
+                    raise ValueError(
+                        f"Invalid date range: start_date ({start_date}) must be strictly earlier than end_date ({end_date})"
+                    )
+
+            from_dt = dt_start
+            to_dt = dt_end or datetime.now()
+        else:
+            to_dt = datetime.now()
+            from_dt = to_dt - timedelta(days=365 * years)
+
         records: list[Mapping[str, Any]] = []
 
         start = from_dt
@@ -171,11 +194,19 @@ class ZerodhaDataProvider(IDataProvider):
         symbols: Sequence[str],
         exchange: str = "NSE",
         years: int = 10,
+        start_date: Optional[Union[datetime, date, str]] = None,
+        end_date: Optional[Union[datetime, date, str]] = None,
     ) -> Mapping[str, Sequence[MarketBar]]:
         """Batch fetch daily history for multiple symbols."""
         out: dict[str, Sequence[MarketBar]] = {}
         for s in symbols:
-            out[s] = self.daily_history(s, exchange=exchange, years=years)
+            out[s] = self.daily_history(
+                s,
+                exchange=exchange,
+                years=years,
+                start_date=start_date,
+                end_date=end_date,
+            )
         return out
 
     def intraday(

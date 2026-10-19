@@ -52,17 +52,31 @@ def normalize_yfinance_bars(df: Any) -> Sequence[MarketBar]:
     if df.empty:
         return ()
 
-    # Handle MultiIndex columns (if single-ticker slice retained MultiIndex)
+    # Handle MultiIndex columns by identifying the level containing OHLCV price fields
     if isinstance(df.columns, pd.MultiIndex):
-        # Flatten MultiIndex to lowest level or first level
         df = df.copy()
-        df.columns = df.columns.get_level_values(-1)
+        best_level = None
+        max_matches = 0
+        known_fields = {"close", "adj close", "open", "high", "low", "volume"}
+        for lvl in range(df.columns.nlevels):
+            vals = {str(c).strip().lower() for c in df.columns.get_level_values(lvl)}
+            matches = len(vals.intersection(known_fields))
+            if matches > max_matches:
+                max_matches = matches
+                best_level = lvl
+
+        if best_level is not None and max_matches > 0:
+            df.columns = df.columns.get_level_values(best_level)
+        else:
+            # Fallback to last level if no known price fields detected
+            df.columns = df.columns.get_level_values(-1)
 
     # Standardize column names to lowercase
-    col_map: dict[str, str] = {}
+    col_map: dict[str, Any] = {}
     for col in df.columns:
         c_str = str(col).strip().lower()
-        col_map[c_str] = col
+        if c_str not in col_map:
+            col_map[c_str] = col
 
     # Identify primary columns
     c_close = col_map.get("close") or col_map.get("adj close")
@@ -76,13 +90,23 @@ def normalize_yfinance_bars(df: Any) -> Sequence[MarketBar]:
 
     bars_by_ts: dict[datetime, MarketBar] = {}
 
+    def _extract_series(col_key: Any) -> Optional[Any]:
+        if col_key is None:
+            return None
+        series_or_df = df[col_key]
+        if isinstance(series_or_df, pd.DataFrame):
+            return series_or_df.iloc[:, 0].values
+        return series_or_df.values
+
     # Extract Series arrays for rapid iteration
     indices = df.index
-    closes = df[c_close].values
-    opens = df[c_open].values if c_open else closes
-    highs = df[c_high].values if c_high else closes
-    lows = df[c_low].values if c_low else closes
-    volumes = df[c_vol].values if c_vol else None
+    closes = _extract_series(c_close)
+    if closes is None:
+        return ()
+    opens = _extract_series(c_open) if c_open is not None else closes
+    highs = _extract_series(c_high) if c_high is not None else closes
+    lows = _extract_series(c_low) if c_low is not None else closes
+    volumes = _extract_series(c_vol) if c_vol is not None else None
 
     for i in range(len(df)):
         ts = _to_naive_datetime(indices[i])

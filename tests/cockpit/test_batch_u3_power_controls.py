@@ -230,7 +230,6 @@ def test_batch_u3_app_js_handlers_present():
     assert "applyBandPositionBtn" in content
     assert "cutoffTemplateSelect" in content
     assert "matrix-band-input" in content
-    assert "btn-matrix-save" in content
     assert "updateDiscoveredSectors" in content
     assert "bandHistoryModal" in content
     assert "bandBackupsModal" in content

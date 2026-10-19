@@ -348,6 +348,25 @@ document.addEventListener('DOMContentLoaded', async () => {
     // -------------------------------------------------------------------------
     // 3. System Status & Dataset Refresh
     // -------------------------------------------------------------------------
+    let _buildPollingInterval = null;
+
+    function _startBuildPolling() {
+        if (_buildPollingInterval) return;
+        _buildPollingInterval = setInterval(async () => {
+            const st = await updateStatus();
+            if (!st || st.status !== 'BUILDING') {
+                clearInterval(_buildPollingInterval);
+                _buildPollingInterval = null;
+                if (st && st.status === 'READY') {
+                    showToast('Live market dataset rebuild complete!', 'success');
+                    await runScreen();
+                } else if (st && st.status === 'FAILED') {
+                    showToast(`Rebuild failed: ${st.error || 'Unknown error'}`, 'error');
+                }
+            }
+        }, 2000);
+    }
+
     async function updateStatus() {
         try {
             const status = await API.getStatus();
@@ -357,36 +376,51 @@ document.addEventListener('DOMContentLoaded', async () => {
             const lastBuiltEl = document.getElementById('lastBuiltText');
             const modeBadge = document.getElementById('modeBadge');
             const statusDot = document.getElementById('statusDot');
+            const statusText = document.getElementById('statusText');
             const funnelUniverse = document.getElementById('funnelUniverse');
 
-            if (universeEl) universeEl.textContent = `Universe: ${status.universe_count} stocks`;
-            if (funnelUniverse) funnelUniverse.textContent = status.universe_count;
-            if (lastBuiltEl) {
-                lastBuiltEl.textContent = status.last_built_at
-                    ? `As of: ${new Date(status.last_built_at).toLocaleTimeString()}`
-                    : 'As of: Not built';
-            }
+            if (status.status === 'BUILDING') {
+                if (statusDot) statusDot.className = 'status-indicator building';
+                const pct = Math.round((status.progress || 0) * 100);
+                if (statusText) statusText.textContent = `System: BUILDING (${pct}%)`;
+                if (universeEl) universeEl.textContent = status.progress_stage || 'Building market dataset...';
+                if (modeBadge) {
+                    modeBadge.className = 'badge badge-warning';
+                    modeBadge.textContent = `MODE: LIVE (BUILDING ${pct}%)`;
+                }
+                _startBuildPolling();
+            } else {
+                if (statusDot) statusDot.className = (status.status === 'FAILED') ? 'status-indicator error' : 'status-indicator ready';
+                if (statusText) statusText.textContent = `System: ${status.status}`;
+                if (universeEl) universeEl.textContent = `Universe: ${status.universe_count} stocks`;
+                if (funnelUniverse) funnelUniverse.textContent = status.universe_count;
+                if (lastBuiltEl) {
+                    lastBuiltEl.textContent = status.last_built_at
+                        ? `As of: ${new Date(status.last_built_at).toLocaleTimeString()}`
+                        : 'As of: Not built';
+                }
 
-            if (modeBadge) {
-                if (status.is_demo) {
-                    modeBadge.className = 'badge badge-demo';
-                    modeBadge.textContent = 'MODE: DEMO (5 STOCKS)';
-                } else if (status.universe_count > 0) {
-                    modeBadge.className = 'badge badge-live';
-                    const providerLabel = (status.provider === 'yfinance')
-                        ? 'YAHOO FINANCE'
-                        : (status.provider || 'LIVE').toUpperCase();
-                    modeBadge.textContent = `MODE: LIVE (${providerLabel} / ${status.exchange || 'NSE'})`;
-                } else {
-                    modeBadge.className = 'badge';
-                    const providerLabel = (status.provider === 'yfinance')
-                        ? 'YAHOO FINANCE'
-                        : (status.provider || 'LIVE').toUpperCase();
-                    modeBadge.textContent = `MODE: ${providerLabel} (EMPTY)`;
+                if (modeBadge) {
+                    if (status.is_demo) {
+                        modeBadge.className = 'badge badge-demo';
+                        modeBadge.textContent = 'MODE: DEMO (5 STOCKS)';
+                    } else if (status.universe_count > 0) {
+                        modeBadge.className = 'badge badge-live';
+                        const providerLabel = (status.provider === 'yfinance')
+                            ? 'YAHOO FINANCE'
+                            : (status.provider || 'LIVE').toUpperCase();
+                        const cacheTag = status.is_cached ? ' (CACHED)' : '';
+                        modeBadge.textContent = `MODE: LIVE (${providerLabel}${cacheTag} / ${status.exchange || 'NSE'})`;
+                    } else {
+                        modeBadge.className = 'badge';
+                        const providerLabel = (status.provider === 'yfinance')
+                            ? 'YAHOO FINANCE'
+                            : (status.provider || 'LIVE').toUpperCase();
+                        modeBadge.textContent = `MODE: ${providerLabel} (EMPTY)`;
+                    }
                 }
             }
 
-            if (statusDot) statusDot.className = 'status-indicator ready';
             updateSummaryBanner();
             return status;
         } catch (err) {
@@ -406,6 +440,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             showToast('Loaded demo dataset (5 stocks) successfully!', 'success');
         } catch (err) {
             showToast(`Failed to load demo: ${err.message}`, 'error');
+            await updateStatus();
         } finally {
             if (btn) btn.disabled = false;
         }
@@ -415,13 +450,14 @@ document.addEventListener('DOMContentLoaded', async () => {
         const btn = document.getElementById('refreshBtn');
         if (btn) btn.disabled = true;
         try {
-            showToast('Rebuilding live market dataset from Yahoo Finance...', 'info');
-            await API.refreshDataset(null, null, 'yfinance');
+            showToast('Initiating background live rebuild from Yahoo Finance...', 'info');
+            const res = await API.refreshDataset(null, null, 'yfinance', true);
             await updateStatus();
-            await runScreen();
-            showToast('Live Yahoo Finance dataset refreshed successfully!', 'success');
+            _startBuildPolling();
+            showToast('Rebuild running in background. Status and progress will update live.', 'info');
         } catch (err) {
-            showToast(`Failed to rebuild live dataset: ${err.message}`, 'error');
+            showToast(`Failed to trigger rebuild: ${err.message}`, 'error');
+            await updateStatus();
         } finally {
             if (btn) btn.disabled = false;
         }
@@ -429,6 +465,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     document.getElementById('loadDemoBtn')?.addEventListener('click', loadDemoData);
     document.getElementById('refreshBtn')?.addEventListener('click', rebuildLiveDataset);
+
 
     // -------------------------------------------------------------------------
     // 4. Populate Dropdowns (Ranking Metrics & Presets)
@@ -533,9 +570,11 @@ document.addEventListener('DOMContentLoaded', async () => {
             loadedPresetName = detail.name;
             isPresetModified = false;
 
-            // 1. Clear rules container
+            // 1. Clear rules container & EMA builder container
             const rulesContainer = document.getElementById('filterRulesContainer');
             if (rulesContainer) rulesContainer.innerHTML = '';
+            const emaContainer = document.getElementById('emaConditionsContainer');
+            if (emaContainer) emaContainer.innerHTML = '';
 
             // 2. Set root match & root negation
             const rootMatch = document.getElementById('rootGroupMatch');
@@ -551,6 +590,8 @@ document.addEventListener('DOMContentLoaded', async () => {
                 detail.filter_group.rules.forEach(r => {
                     if (r.rules && Array.isArray(r.rules)) {
                         createNestedGroupCard(rulesContainer, r);
+                    } else if (r.condition_type === 'ema') {
+                        createEmaConditionCard(emaContainer, r);
                     } else {
                         createRuleRow(rulesContainer, r);
                     }
@@ -627,6 +668,15 @@ document.addEventListener('DOMContentLoaded', async () => {
         resetFormBtn.addEventListener('click', () => {
             const rulesContainer = document.getElementById('filterRulesContainer');
             if (rulesContainer) rulesContainer.innerHTML = '';
+            const emaContainer = document.getElementById('emaConditionsContainer');
+            if (emaContainer) {
+                emaContainer.innerHTML = '';
+                if (typeof createEmaConditionCard === 'function') {
+                    createEmaConditionCard(emaContainer);
+                }
+            }
+            const emaMatch = document.getElementById('emaGroupMatch');
+            if (emaMatch) emaMatch.value = 'all';
             const rootMatch = document.getElementById('rootGroupMatch');
             if (rootMatch) rootMatch.value = 'all';
             if (rootGroupNotToggle) rootGroupNotToggle.classList.remove('active');
@@ -938,48 +988,469 @@ document.addEventListener('DOMContentLoaded', async () => {
     function updateActiveRuleCount() {
         const badge = document.getElementById('activeRuleCountBadge');
         if (!badge) return;
-        const count = document.querySelectorAll('.rule-card').length;
-        badge.textContent = `${count} ${count === 1 ? 'rule' : 'rules'}`;
+        const stdCount = document.querySelectorAll('.rule-card').length;
+        const emaCount = document.querySelectorAll('.ema-condition-card').length;
+        const total = stdCount + emaCount;
+        badge.textContent = `${total} ${total === 1 ? 'rule' : 'rules'}`;
     }
 
     // -------------------------------------------------------------------------
-    // 7. Quick 1-Click Filter Shortcuts Logic
+    // 7. Dynamic EMA Condition Builder
     // -------------------------------------------------------------------------
-    const emaToggleButtons = document.querySelectorAll('#emaQuickToggles .ema-btn');
+    const EMA_TF_CAPS = {
+        D: 31,
+        W: 52,
+        M: 12,
+        Q: 4,
+        H: 2,
+        Y: 1
+    };
 
-    emaToggleButtons.forEach(btn => {
-        btn.addEventListener('click', () => {
-            const tf = btn.dataset.tf;
-            const willBeActive = !btn.classList.contains('active');
-            btn.classList.toggle('active');
+    const EMA_TF_LABELS = {
+        D: 'Daily',
+        W: 'Weekly',
+        M: 'Monthly',
+        Q: 'Quarterly',
+        H: 'Half-Yearly',
+        Y: 'Yearly'
+    };
 
-            const ruleKey = `EMA_${tf}`;
-            if (willBeActive) {
-                // Add EMA rule if not already in root
-                const existing = Array.from(rulesContainer.querySelectorAll('.rule-card')).find(card => {
-                    const sel = card.querySelector('.rule-metric-select');
-                    return sel && sel.value === ruleKey;
-                });
-                if (!existing) {
-                    createRuleRow(rulesContainer, {
-                        field: ruleKey,
-                        op: 'in',
-                        value: ['upcut', 'yes']
-                    });
-                }
-            } else {
-                // Remove EMA rule
-                const existing = Array.from(rulesContainer.querySelectorAll('.rule-card')).find(card => {
-                    const sel = card.querySelector('.rule-metric-select');
-                    return sel && sel.value === ruleKey;
-                });
-                if (existing) existing.remove();
+    const EMA_TF_ADJECTIVES = {
+        D: 'daily',
+        W: 'weekly',
+        M: 'monthly',
+        Q: 'quarterly',
+        H: 'half-yearly',
+        Y: 'yearly'
+    };
+
+    const emaConditionsContainer = document.getElementById('emaConditionsContainer');
+    const addEmaConditionBtn = document.getElementById('addEmaConditionBtn');
+    const emaGroupMatchSelect = document.getElementById('emaGroupMatch');
+
+    function updateEmaCardIndices() {
+        const cards = document.querySelectorAll('.ema-condition-card');
+        const container = document.getElementById('emaConditionsContainer');
+        const matchWrap = document.getElementById('emaMatchControlWrap');
+
+        if (cards.length > 1) {
+            if (container) container.classList.add('has-multiple');
+            if (matchWrap) matchWrap.style.display = 'inline-flex';
+        } else {
+            if (container) container.classList.remove('has-multiple');
+            if (matchWrap) matchWrap.style.display = 'none';
+        }
+
+        cards.forEach((card, idx) => {
+            const badge = card.querySelector('.ema-card-badge');
+            if (badge) {
+                badge.textContent = `Condition #${idx + 1}`;
             }
+            if (cards.length > 1) {
+                card.classList.add('multi-card');
+            } else {
+                card.classList.remove('multi-card');
+                card.classList.remove('is-collapsed');
+            }
+        });
+    }
+
+    function populatePeriodOptions(selectEl, maxPeriod, currentVal, fallbackVal) {
+        selectEl.innerHTML = '';
+        for (let i = 1; i <= maxPeriod; i++) {
+            const opt = document.createElement('option');
+            opt.value = i;
+            opt.textContent = `EMA ${i}`;
+            selectEl.appendChild(opt);
+        }
+        let targetVal = currentVal !== undefined ? parseInt(currentVal, 10) : fallbackVal;
+        if (isNaN(targetVal) || targetVal < 1) targetVal = fallbackVal;
+        if (targetVal > maxPeriod) targetVal = maxPeriod;
+        selectEl.value = String(targetVal);
+    }
+
+    function updateEmaCardPreview(card) {
+        if (!card) return;
+        const tfBtn = card.querySelector('.ema-tf-btn.active');
+        const tf = tfBtn ? tfBtn.dataset.tf : 'M';
+        const cap = EMA_TF_CAPS[tf] || 12;
+        const tfLabel = EMA_TF_LABELS[tf] || tf;
+        const tfAdj = EMA_TF_ADJECTIVES[tf] || 'monthly';
+
+        const p1Sel = card.querySelector('.ema-p1-select');
+        const p2Sel = card.querySelector('.ema-p2-select');
+        const p1 = p1Sel ? parseInt(p1Sel.value, 10) : 3;
+        const p2 = p2Sel ? parseInt(p2Sel.value, 10) : 5;
+
+        const stateBtn = card.querySelector('.ema-state-btn.active');
+        const state = stateBtn ? stateBtn.dataset.state : 'UP';
+
+        const tfLimitNotice = card.querySelector('.ema-tf-limit-notice');
+        const p1Label = card.querySelector('.ema-p1-label');
+        const p2Label = card.querySelector('.ema-p2-label');
+        const combHelperText = card.querySelector('.ema-comb-helper-text');
+        const combErrorNotice = card.querySelector('.ema-comb-error-notice');
+        const previewSummary = card.querySelector('.ema-preview-summary');
+        const previewExplanation = card.querySelector('.ema-preview-explanation');
+        const previewFooter = card.querySelector('.ema-preview-footer');
+        const summaryChip = card.querySelector('.ema-card-summary-chip');
+
+        // 1. Timeframe Limit Notice (compact helper line matching reference)
+        if (tfLimitNotice) {
+            if (tf === 'Y') {
+                tfLimitNotice.textContent = 'Maximum period for Y: 1 candle (requires 2 distinct periods)';
+                tfLimitNotice.classList.add('warning');
+            } else {
+                tfLimitNotice.textContent = `Maximum period for ${tf}: ${cap} ${cap === 1 ? 'candle' : 'candles'}`;
+                tfLimitNotice.classList.remove('warning');
+            }
+        }
+
+        // 2. Period Labels
+        if (p1Label) p1Label.textContent = 'First EMA';
+        if (p2Label) p2Label.textContent = 'Second EMA';
+
+        // 3. Helper Text: "Both EMAs use {timeframe} candles."
+        if (combHelperText) {
+            combHelperText.textContent = `Both EMAs use ${tfAdj} candles.`;
+        }
+
+        // 4. Validation for equal periods or Yearly timeframe
+        const isYearly = (tf === 'Y');
+        const isEqualPeriods = (!isNaN(p1) && !isNaN(p2) && p1 === p2);
+        const isInvalid = isYearly || isEqualPeriods;
+
+        if (p1Sel) p1Sel.classList.toggle('is-invalid', isInvalid);
+        if (p2Sel) p2Sel.classList.toggle('is-invalid', isInvalid);
+
+        if (combErrorNotice) {
+            if (isYearly) {
+                combErrorNotice.textContent = 'Yearly timeframe only has 1 candle; two distinct EMA periods are not possible.';
+                combErrorNotice.style.display = 'flex';
+            } else if (isEqualPeriods) {
+                combErrorNotice.textContent = 'First EMA and Second EMA periods must be distinct.';
+                combErrorNotice.style.display = 'flex';
+            } else {
+                combErrorNotice.style.display = 'none';
+            }
+        }
+
+        // 5. Live Condition Preview Panel (White summary, green/red/gold explanation)
+        const isBearish = (state === 'DOWN' || state === 'DOWNCUT');
+        let summaryText = '';
+        if (isYearly) {
+            summaryText = 'EMA 1 vs EMA 1 · Y · INVALID';
+            if (previewSummary) {
+                previewSummary.textContent = summaryText;
+                previewSummary.className = 'ema-preview-summary is-invalid';
+            }
+            if (summaryChip) {
+                summaryChip.textContent = summaryText;
+                summaryChip.className = 'ema-card-summary-chip is-invalid';
+            }
+        } else if (isEqualPeriods) {
+            summaryText = `EMA ${p1} vs EMA ${p2} · ${tf} · INVALID`;
+            if (previewSummary) {
+                previewSummary.textContent = summaryText;
+                previewSummary.className = 'ema-preview-summary is-invalid';
+            }
+            if (summaryChip) {
+                summaryChip.textContent = summaryText;
+                summaryChip.className = 'ema-card-summary-chip is-invalid';
+            }
+        } else {
+            summaryText = `EMA ${p1} vs EMA ${p2} · ${tf} · ${state}`;
+            if (previewSummary) {
+                previewSummary.textContent = summaryText;
+                previewSummary.className = 'ema-preview-summary';
+            }
+            if (summaryChip) {
+                summaryChip.textContent = summaryText;
+                summaryChip.className = `ema-card-summary-chip${isBearish ? ' is-bearish' : ''}`;
+            }
+        }
+
+        if (previewExplanation) {
+            if (isYearly) {
+                previewExplanation.textContent = 'Yearly timeframe requires 2 distinct periods.';
+                previewExplanation.className = 'ema-preview-explanation is-invalid';
+            } else if (isEqualPeriods) {
+                previewExplanation.textContent = 'First EMA and Second EMA periods must be distinct.';
+                previewExplanation.className = 'ema-preview-explanation is-invalid';
+            } else if (state === 'UP') {
+                previewExplanation.textContent = 'First EMA is above the second EMA.';
+                previewExplanation.className = 'ema-preview-explanation';
+            } else if (state === 'DOWN') {
+                previewExplanation.textContent = 'First EMA is below the second EMA.';
+                previewExplanation.className = 'ema-preview-explanation is-bearish';
+            } else if (state === 'UPCUT') {
+                previewExplanation.textContent = 'First EMA crossed above the second EMA.';
+                previewExplanation.className = 'ema-preview-explanation';
+            } else if (state === 'DOWNCUT') {
+                previewExplanation.textContent = 'First EMA crossed below the second EMA.';
+                previewExplanation.className = 'ema-preview-explanation is-bearish';
+            }
+        }
+
+        if (previewFooter) {
+            previewFooter.textContent = `${tfLabel} timeframe · EMA period range 1–${cap}`;
+        }
+    }
+
+    function createEmaConditionCard(parentEl, initialConfig = null) {
+        if (!parentEl) return null;
+
+        const card = document.createElement('div');
+        card.className = 'ema-condition-card';
+
+        const initTf = (initialConfig && (initialConfig.timeframe || initialConfig.tf)) ? (initialConfig.timeframe || initialConfig.tf).toUpperCase() : 'M';
+        const initP1 = (initialConfig && initialConfig.p1 !== undefined) ? parseInt(initialConfig.p1, 10) : 3;
+        const initP2 = (initialConfig && initialConfig.p2 !== undefined) ? parseInt(initialConfig.p2, 10) : 5;
+        const initState = (initialConfig && (initialConfig.state || initialConfig.value)) ? (initialConfig.state || initialConfig.value).toUpperCase() : 'UP';
+
+        card.innerHTML = `
+            <div class="ema-card-header">
+                <div class="ema-card-header-left">
+                    <span class="ema-card-badge">Condition #1</span>
+                    <span class="ema-card-summary-chip"></span>
+                </div>
+                <div class="ema-card-header-right">
+                    <button type="button" class="btn-toggle-ema-card" title="Collapse / Expand condition">▾</button>
+                    <button type="button" class="btn-remove-ema-card" title="Remove EMA condition">✕</button>
+                </div>
+            </div>
+
+            <div class="ema-card-body">
+                <!-- Section 1: Select Timeframe -->
+                <div class="ema-step-section">
+                    <div class="ema-step-title">1. Select timeframe</div>
+                    <div class="ema-tf-segmented-grid">
+                        <button type="button" class="ema-tf-btn ${initTf === 'D' ? 'active' : ''}" data-tf="D">D</button>
+                        <button type="button" class="ema-tf-btn ${initTf === 'W' ? 'active' : ''}" data-tf="W">W</button>
+                        <button type="button" class="ema-tf-btn ${initTf === 'M' ? 'active' : ''}" data-tf="M">M</button>
+                        <button type="button" class="ema-tf-btn ${initTf === 'Q' ? 'active' : ''}" data-tf="Q">Q</button>
+                        <button type="button" class="ema-tf-btn ${initTf === 'H' ? 'active' : ''}" data-tf="H">H</button>
+                        <button type="button" class="ema-tf-btn ${initTf === 'Y' ? 'active' : ''}" data-tf="Y">Y</button>
+                    </div>
+                    <div class="ema-tf-limit-notice"></div>
+                </div>
+
+                <!-- Section 2: Choose EMA combination -->
+                <div class="ema-step-section">
+                    <div class="ema-step-title">2. Choose EMA combination</div>
+                    <div class="ema-comb-grid">
+                        <div class="ema-comb-field">
+                            <label class="ema-comb-label ema-p1-label">First EMA</label>
+                            <select class="ema-select-large ema-p1-select"></select>
+                        </div>
+                        <div class="ema-comb-field">
+                            <label class="ema-comb-label ema-p2-label">Second EMA</label>
+                            <select class="ema-select-large ema-p2-select"></select>
+                        </div>
+                    </div>
+                    <div class="ema-comb-helper-text"></div>
+                    <div class="ema-comb-error-notice" style="display: none;">First EMA and Second EMA periods must be distinct.</div>
+                </div>
+
+                <!-- Section 3: Select desired state -->
+                <div class="ema-step-section section-state">
+                    <div class="ema-step-title">3. Select desired state</div>
+                    <div class="ema-state-grid">
+                        <button type="button" class="ema-state-btn state-up ${initState === 'UP' ? 'active' : ''}" data-state="UP">UP</button>
+                        <button type="button" class="ema-state-btn state-down ${initState === 'DOWN' ? 'active' : ''}" data-state="DOWN">DOWN</button>
+                        <button type="button" class="ema-state-btn state-upcut ${initState === 'UPCUT' ? 'active' : ''}" data-state="UPCUT">UPCUT</button>
+                        <button type="button" class="ema-state-btn state-downcut ${initState === 'DOWNCUT' ? 'active' : ''}" data-state="DOWNCUT">DOWNCUT</button>
+                    </div>
+                </div>
+
+                <!-- Live Condition Preview Panel -->
+                <div class="ema-preview-panel">
+                    <div class="ema-preview-badge">CONDITION PREVIEW</div>
+                    <div class="ema-preview-summary"></div>
+                    <div class="ema-preview-explanation"></div>
+                    <div class="ema-preview-footer"></div>
+                </div>
+            </div>
+        `;
+
+        const p1Sel = card.querySelector('.ema-p1-select');
+        const p2Sel = card.querySelector('.ema-p2-select');
+        const tfButtons = card.querySelectorAll('.ema-tf-btn');
+        const stateButtons = card.querySelectorAll('.ema-state-btn');
+        const removeBtn = card.querySelector('.btn-remove-ema-card');
+        const toggleBtn = card.querySelector('.btn-toggle-ema-card');
+        const cardHeader = card.querySelector('.ema-card-header');
+
+        function updatePeriodsForTf(selectedTf, preferredP1, preferredP2) {
+            const cap = EMA_TF_CAPS[selectedTf] || 31;
+            let p1Val = preferredP1 !== undefined ? preferredP1 : parseInt(p1Sel.value, 10);
+            let p2Val = preferredP2 !== undefined ? preferredP2 : parseInt(p2Sel.value, 10);
+
+            if (isNaN(p1Val) || p1Val < 1) p1Val = Math.min(3, cap);
+            if (p1Val > cap) p1Val = cap;
+
+            if (isNaN(p2Val) || p2Val < 1) p2Val = Math.min(5, cap);
+            if (p2Val > cap) p2Val = cap;
+
+            // Deterministic adjustment if p1 === p2 on timeframe switch (when cap >= 2)
+            if (p1Val === p2Val && cap >= 2) {
+                if (p1Val < cap) {
+                    p2Val = p1Val + 1;
+                } else {
+                    p2Val = p1Val - 1;
+                }
+            }
+
+            populatePeriodOptions(p1Sel, cap, p1Val, Math.min(3, cap));
+            populatePeriodOptions(p2Sel, cap, p2Val, Math.min(5, cap));
+
+            // Ensure period labels remain clean
+            const p1Label = card.querySelector('.ema-p1-label');
+            const p2Label = card.querySelector('.ema-p2-label');
+            if (p1Label) p1Label.textContent = 'First EMA';
+            if (p2Label) p2Label.textContent = 'Second EMA';
+        }
+
+        // Initialize periods
+        updatePeriodsForTf(initTf, initP1, initP2);
+
+        // Timeframe button clicks
+        tfButtons.forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                tfButtons.forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                const tf = btn.dataset.tf;
+                updatePeriodsForTf(tf);
+                updateEmaCardPreview(card);
+                onConditionChanged();
+            });
+        });
+
+        // Period select changes (strictly preserve selection order; do not swap)
+        p1Sel.addEventListener('change', () => {
+            updateEmaCardPreview(card);
             onConditionChanged();
         });
-    });
 
+        p2Sel.addEventListener('change', () => {
+            updateEmaCardPreview(card);
+            onConditionChanged();
+        });
+
+        // State button clicks
+        stateButtons.forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                stateButtons.forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                updateEmaCardPreview(card);
+                onConditionChanged();
+            });
+        });
+
+        // Expand / Collapse functionality
+        function toggleCollapse() {
+            card.classList.toggle('is-collapsed');
+            const isCollapsed = card.classList.contains('is-collapsed');
+            if (toggleBtn) {
+                toggleBtn.textContent = isCollapsed ? '▸' : '▾';
+                toggleBtn.title = isCollapsed ? 'Expand condition' : 'Collapse condition';
+            }
+        }
+
+        if (toggleBtn) {
+            toggleBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                toggleCollapse();
+            });
+        }
+
+        // Clicking the header when collapsed expands it
+        if (cardHeader) {
+            cardHeader.addEventListener('click', (e) => {
+                if (e.target.closest('.btn-remove-ema-card')) return;
+                if (card.classList.contains('is-collapsed')) {
+                    toggleCollapse();
+                }
+            });
+        }
+
+        // Remove button click
+        removeBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            card.remove();
+            updateEmaCardIndices();
+            updateActiveRuleCount();
+            onConditionChanged();
+        });
+
+        updateEmaCardPreview(card);
+        parentEl.appendChild(card);
+        updateEmaCardIndices();
+        updateActiveRuleCount();
+        return card;
+    }
+
+    if (addEmaConditionBtn && emaConditionsContainer) {
+        addEmaConditionBtn.addEventListener('click', () => {
+            // Collapse existing cards so new card takes prominence
+            document.querySelectorAll('.ema-condition-card').forEach(c => {
+                c.classList.add('is-collapsed');
+                const tBtn = c.querySelector('.btn-toggle-ema-card');
+                if (tBtn) {
+                    tBtn.textContent = '▸';
+                    tBtn.title = 'Expand condition';
+                }
+            });
+            createEmaConditionCard(emaConditionsContainer);
+            onConditionChanged();
+        });
+    }
+
+    if (emaGroupMatchSelect) {
+        emaGroupMatchSelect.addEventListener('change', () => {
+            onConditionChanged();
+        });
+    }
+
+    function extractEmaConditions() {
+        const cards = document.querySelectorAll('.ema-condition-card');
+        const rules = [];
+        cards.forEach(card => {
+            const tf = card.querySelector('.ema-tf-btn.active')?.dataset.tf || 'D';
+            const p1 = parseInt(card.querySelector('.ema-p1-select')?.value, 10);
+            const p2 = parseInt(card.querySelector('.ema-p2-select')?.value, 10);
+            const state = card.querySelector('.ema-state-btn.active')?.dataset.state || 'UPCUT';
+
+            if (isNaN(p1) || isNaN(p2) || p1 === p2 || p1 < 1 || p2 < 1 || tf === 'Y') {
+                return;
+            }
+
+            rules.push({
+                field: `EMA_${tf}_${p1}_${p2}`,
+                op: '==',
+                value: state,
+                condition_type: 'ema',
+                timeframe: tf,
+                p1: p1,
+                p2: p2,
+                state: state,
+                lookback: 1
+            });
+        });
+        return rules;
+    }
+
+    // Initialize 1 default EMA condition card if container is empty
+    if (emaConditionsContainer && emaConditionsContainer.children.length === 0) {
+        createEmaConditionCard(emaConditionsContainer);
+    }
+
+    // Retain legacy shortcut buttons & sync functions for backward test compatibility
+    const emaToggleButtons = document.querySelectorAll('#emaQuickToggles .ema-btn');
     function syncEmaTogglesFromRules() {
+        if (!emaToggleButtons.length) return;
         const activeEmaFields = new Set();
         document.querySelectorAll('.rule-card').forEach(card => {
             const sel = card.querySelector('.rule-metric-select');
@@ -987,7 +1458,6 @@ document.addEventListener('DOMContentLoaded', async () => {
                 activeEmaFields.add(sel.value);
             }
         });
-
         emaToggleButtons.forEach(btn => {
             const tf = btn.dataset.tf;
             const hasRule = activeEmaFields.has(`EMA_${tf}`);
@@ -1165,7 +1635,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             }
         }
 
-        const ruleCount = document.querySelectorAll('.rule-card').length;
+        const ruleCount = document.querySelectorAll('.rule-card').length + document.querySelectorAll('.ema-condition-card').length;
         const isRootNegated = document.getElementById('rootGroupNotToggle')?.classList.contains('active');
         if (condEl) {
             const notPrefix = isRootNegated ? 'NOT ' : '';
@@ -1274,7 +1744,23 @@ document.addEventListener('DOMContentLoaded', async () => {
         return rules.length > 0 ? { match: matchType, rules, is_negated: isNegated } : null;
     }
 
-    function buildScreenPayload() {
+    function buildScreenPayload(options = {}) {
+        if (options && options.unconstrained) {
+            const rankingMetric = document.getElementById('rankingMetric')?.value || null;
+            const rankingOrder = document.getElementById('rankingOrder')?.value || 'desc';
+            const limitVal = parseInt(document.getElementById('screenLimit')?.value, 10) || null;
+            const colsVal = document.getElementById('customColumns')?.value.trim();
+            const cols = colsVal ? colsVal.split(',').map(c => c.trim()).filter(Boolean) : null;
+            return {
+                filter_group: null,
+                ranking_metric: rankingMetric,
+                ranking_order: rankingOrder,
+                selection_cutoffs: [],
+                limit: limitVal,
+                columns: cols
+            };
+        }
+
         const rootMatch = document.getElementById('rootGroupMatch')?.value || 'all';
         const rootNot = document.getElementById('rootGroupNotToggle')?.classList.contains('active') || false;
         const filterGroup = extractFilterGroup(rulesContainer, rootMatch, rootNot);
@@ -1322,6 +1808,40 @@ document.addEventListener('DOMContentLoaded', async () => {
             }
         }
 
+        // EMA dynamic condition builder rules
+        const emaRules = extractEmaConditions();
+        if (emaRules.length > 0) {
+            const emaMatch = document.getElementById('emaGroupMatch')?.value || 'all';
+            let emaNode = null;
+            if (emaRules.length === 1) {
+                emaNode = emaRules[0];
+            } else {
+                emaNode = {
+                    match: emaMatch,
+                    rules: emaRules,
+                    is_negated: false
+                };
+            }
+
+            if (!activeFilterGroup) {
+                activeFilterGroup = emaNode.rules ? emaNode : { match: 'all', rules: [emaNode], is_negated: false };
+            } else if (activeFilterGroup.match === 'all' && !activeFilterGroup.is_negated) {
+                if (emaRules.length === 1) {
+                    activeFilterGroup.rules.push(emaRules[0]);
+                } else if (emaMatch === 'all') {
+                    activeFilterGroup.rules.push(...emaRules);
+                } else {
+                    activeFilterGroup.rules.push(emaNode);
+                }
+            } else {
+                activeFilterGroup = {
+                    match: 'all',
+                    rules: [activeFilterGroup, emaNode],
+                    is_negated: false
+                };
+            }
+        }
+
         const rankingMetric = document.getElementById('rankingMetric')?.value || null;
         const rankingOrder = document.getElementById('rankingOrder')?.value || 'desc';
         const limitVal = parseInt(document.getElementById('screenLimit')?.value, 10) || null;
@@ -1350,25 +1870,186 @@ document.addEventListener('DOMContentLoaded', async () => {
         };
     }
 
-    async function runScreen() {
+    let activeScreenRequestId = null;
+    let activeScreenAbortController = null;
+    let activeScreenPollTimer = null;
+    let activeScreenState = 'idle'; // 'idle', 'running', 'cancelling', 'completed', 'cancelled', 'failed'
+
+    async function runScreen(options = {}) {
+        // Prevent accidental duplicate submissions while a request is active
+        if (activeScreenState === 'running') {
+            return;
+        }
+
         const btn = document.getElementById('runScreenBtn');
-        if (btn) btn.disabled = true;
+        const runTextEl = document.getElementById('runScreenText');
+        const cancelBtn = document.getElementById('cancelScreenBtn');
+        const isInitial = Boolean(options && options.unconstrained);
+
+        const requestId = 'scr_' + Date.now() + '_' + Math.random().toString(36).substring(2, 8);
+        activeScreenRequestId = requestId;
+        activeScreenState = 'running';
+        activeScreenAbortController = new AbortController();
+
+        const prefix = isInitial ? 'Loading...' : 'Screening...';
+        if (btn) {
+            btn.disabled = true;
+            if (runTextEl) runTextEl.textContent = prefix;
+            else btn.textContent = prefix;
+        }
+
+        if (cancelBtn) {
+            cancelBtn.style.display = 'inline-flex';
+            cancelBtn.disabled = false;
+            cancelBtn.innerHTML = '<span class="icon">⏹</span> CANCEL';
+        }
+
+        const tbody = document.getElementById('tableBody');
+        const hasExistingRows = tbody && tbody.querySelectorAll('tr:not(.empty-state)').length > 0 && !tbody.querySelector('.empty-guide-card');
+
+        // Provide clean feedback: if no rows are present, show table loader
+        if (tbody && !hasExistingRows) {
+            tbody.innerHTML = `
+                <tr>
+                    <td colspan="16" class="empty-state">
+                        <div class="empty-guide-card">
+                            <div class="spinner" style="margin: 0 auto 16px auto; width: 36px; height: 36px; border: 3px solid rgba(255,255,255,0.15); border-top-color: var(--accent, #6366f1); border-radius: 50%; animation: spin 0.8s linear infinite;"></div>
+                            <h3>${isInitial ? 'Loading Stock Universe...' : 'Screening Stock Universe...'}</h3>
+                            <p>${isInitial ? 'Retrieving market data from persistent cache.' : 'Evaluating screening conditions and ranking qualified stocks.'}</p>
+                        </div>
+                    </td>
+                </tr>
+            `;
+        } else if (hasExistingRows) {
+            document.getElementById('resultsTable')?.classList.add('table-screening-in-progress');
+        }
 
         try {
-            const req = buildScreenPayload();
-            showToast('Running multi-timeframe screen...', 'info');
+            const req = buildScreenPayload(options);
+            req.request_id = requestId;
+            showToast(isInitial ? 'Loading market universe...' : 'Running multi-timeframe screen...', 'info');
 
-            const payload = await API.runScreen(req);
+            const payload = await API.runScreen(req, activeScreenAbortController.signal);
+
+            // Stale check: ignore late responses belonging to older or cancelled requests
+            if (activeScreenRequestId !== requestId) {
+                return;
+            }
+
+            activeScreenState = 'completed';
             updateTableResults(payload);
-            showToast(`Screen matched ${payload.qualified_count} stocks (${payload.selected_count} selected)`, 'success');
+            showToast(isInitial ? `Loaded ${payload.universe_count} stocks` : `Screen matched ${payload.qualified_count} stocks (${payload.selected_count} selected)`, 'success');
         } catch (err) {
+            // If request was aborted or cancelled, do not publish errors or clear existing results
+            if (activeScreenRequestId !== requestId || err.name === 'AbortError' || (err.message && err.message.includes('cancelled'))) {
+                return;
+            }
+
+            activeScreenState = 'failed';
             showToast(`Screening failed: ${err.message}`, 'error');
+            if (tbody && !hasExistingRows) {
+                tbody.innerHTML = `
+                    <tr>
+                        <td colspan="16" class="empty-state">
+                            <div class="empty-guide-card">
+                                <h3 style="color: var(--danger, #ef4444);">Screening Error</h3>
+                                <p>${err.message}</p>
+                                <button type="button" class="btn btn-secondary btn-retry-screen">Retry Screen</button>
+                            </div>
+                        </td>
+                    </tr>
+                `;
+                tbody.querySelector('.btn-retry-screen')?.addEventListener('click', () => runScreen(options));
+            }
         } finally {
-            if (btn) btn.disabled = false;
+            if (activeScreenPollTimer) {
+                clearInterval(activeScreenPollTimer);
+                activeScreenPollTimer = null;
+            }
+
+            // If this request is still the active one, transition cleanly to idle
+            if (activeScreenRequestId === requestId) {
+                activeScreenRequestId = null;
+                activeScreenAbortController = null;
+                activeScreenState = 'idle';
+
+                if (btn) {
+                    btn.disabled = false;
+                    if (runTextEl) runTextEl.textContent = 'RUN SCREEN';
+                    else btn.textContent = 'RUN SCREEN';
+                }
+                if (cancelBtn) {
+                    cancelBtn.style.display = 'none';
+                    cancelBtn.disabled = false;
+                    cancelBtn.innerHTML = '<span class="icon">⏹</span> CANCEL';
+                }
+            }
+            document.getElementById('resultsTable')?.classList.remove('table-screening-in-progress');
         }
     }
 
-    document.getElementById('runScreenBtn')?.addEventListener('click', runScreen);
+    async function cancelActiveScreen() {
+        if (!activeScreenRequestId || activeScreenState !== 'running') {
+            return;
+        }
+
+        const reqId = activeScreenRequestId;
+        activeScreenState = 'cancelling';
+
+        const btn = document.getElementById('runScreenBtn');
+        const runTextEl = document.getElementById('runScreenText');
+        const cancelBtn = document.getElementById('cancelScreenBtn');
+
+        if (cancelBtn) {
+            cancelBtn.disabled = true;
+            cancelBtn.innerHTML = '<span class="icon">⏳</span> CANCELLING...';
+        }
+        if (runTextEl) runTextEl.textContent = 'Cancelling...';
+        else if (btn) btn.textContent = 'Cancelling...';
+
+        showToast('Cancelling screen...', 'info');
+
+        // Stop polling
+        if (activeScreenPollTimer) {
+            clearInterval(activeScreenPollTimer);
+            activeScreenPollTimer = null;
+        }
+
+        // Notify backend to cancel the in-flight task
+        try {
+            await API.cancelScreen(reqId);
+        } catch (backendCancelErr) {
+            console.warn('Backend cancel error:', backendCancelErr);
+        }
+
+        // Abort the fetch request
+        if (activeScreenAbortController) {
+            try {
+                activeScreenAbortController.abort();
+            } catch (_) {}
+            activeScreenAbortController = null;
+        }
+
+        activeScreenState = 'cancelled';
+        activeScreenRequestId = null;
+
+        // Return immediately to filter-selection workflow
+        if (btn) {
+            btn.disabled = false;
+            if (runTextEl) runTextEl.textContent = 'RUN SCREEN';
+            else btn.textContent = 'RUN SCREEN';
+        }
+        if (cancelBtn) {
+            cancelBtn.style.display = 'none';
+            cancelBtn.disabled = false;
+            cancelBtn.innerHTML = '<span class="icon">⏹</span> CANCEL';
+        }
+        document.getElementById('resultsTable')?.classList.remove('table-screening-in-progress');
+        showToast('Screening cancelled.', 'info');
+    }
+
+    document.getElementById('runScreenBtn')?.addEventListener('click', () => runScreen());
+    document.getElementById('cancelScreenBtn')?.addEventListener('click', cancelActiveScreen);
 
     const discoveredSectors = new Set();
 
@@ -1787,6 +2468,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         try {
             const series = await API.getCandles(target, activeChartTimeframe, activeBandTimeframe);
             if (activeSymbol !== target || currentStockDrawerRequestId !== currentId) return; // Discard stale response
+
             chart.render(series);
 
             const priceBadge = document.getElementById('activePrice');
@@ -1805,11 +2487,11 @@ document.addEventListener('DOMContentLoaded', async () => {
 
             if (series.latest_band) {
                 const b = series.latest_band;
-                if (basisEl) basisEl.textContent = b.basis !== null ? `₹${b.basis}` : '—';
-                if (upperEl) upperEl.textContent = b.upper !== null ? `₹${b.upper}` : '—';
-                if (lowerEl) lowerEl.textContent = b.lower !== null ? `₹${b.lower}` : '—';
-                if (widthEl) widthEl.textContent = b.width !== null ? `${(b.width * 100).toFixed(1)}%` : '—';
-                if (widthInput) widthInput.value = b.width !== null ? (b.width * 100).toFixed(1) : '';
+                if (basisEl) basisEl.textContent = (b.basis !== null && b.basis !== undefined) ? `₹${Number(b.basis).toFixed(2)}` : '—';
+                if (upperEl) upperEl.textContent = (b.upper !== null && b.upper !== undefined) ? `₹${Number(b.upper).toFixed(2)}` : '—';
+                if (lowerEl) lowerEl.textContent = (b.lower !== null && b.lower !== undefined) ? `₹${Number(b.lower).toFixed(2)}` : '—';
+                if (widthEl) widthEl.textContent = (b.width !== null && b.width !== undefined) ? `${(b.width * 100).toFixed(1)}%` : '—';
+                if (widthInput) widthInput.value = (b.width !== null && b.width !== undefined) ? (b.width * 100).toFixed(1) : '';
             } else {
                 if (basisEl) basisEl.textContent = '—';
                 if (upperEl) upperEl.textContent = '—';
@@ -1845,9 +2527,19 @@ document.addEventListener('DOMContentLoaded', async () => {
             saveBandBtn.disabled = true;
             try {
                 await API.updateBand(activeSymbol, activeChartTimeframe, fraction);
-                await loadChartData(activeSymbol);
-                await loadStockPanel(activeSymbol);
                 showToast(`Band width for ${activeSymbol} (${activeChartTimeframe}) saved at ${pctVal}%`, 'success');
+                currentStockDrawerRequestId++;
+                const reqId = currentStockDrawerRequestId;
+                const [chartRes, panelRes] = await Promise.allSettled([
+                    loadChartData(activeSymbol, reqId),
+                    loadStockPanel(activeSymbol, reqId)
+                ]);
+                if (chartRes.status === 'rejected') {
+                    showToast(`Band saved, but chart refresh failed: ${chartRes.reason?.message || 'Network error'}`, 'warning');
+                }
+                if (panelRes.status === 'rejected') {
+                    showToast(`Band saved, but matrix refresh failed: ${panelRes.reason?.message || 'Network error'}`, 'warning');
+                }
             } catch (err) {
                 showToast(`Failed to save band: ${err.message}`, 'error');
             } finally {
@@ -2017,6 +2709,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             }
 
             function renderSpeedCell(row) {
+                if (row.timeframe === 'D') return '<span class="val-null" title="Sprint velocity is defined for Weekly (W) and higher timeframes">N/A</span>';
                 if (row.speed === null || row.speed === undefined) return '<span class="val-null">—</span>';
                 const f = row.speed.toFixed(2);
                 return `<span class="${row.speed >= 0 ? 'val-positive' : 'val-neutral'}">${row.speed >= 0 ? '+' : ''}${f}%</span>`;
@@ -2026,8 +2719,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 const val = (row.band_width !== null && row.band_width !== undefined) ? (row.band_width * 100).toFixed(1) : '';
                 return `
                     <div class="matrix-band-edit-wrap">
-                        <input type="number" step="0.5" class="matrix-band-input" data-tf="${row.timeframe}" value="${val}" placeholder="—" />
-                        <button type="button" class="btn-matrix-save" data-tf="${row.timeframe}" title="Save ${row.timeframe} band width">✓</button>
+                        <input type="number" step="0.5" min="0" max="100" class="matrix-band-input" data-tf="${row.timeframe}" data-confirmed-val="${val}" value="${val}" placeholder="—" title="Press Enter to save ${row.timeframe} band width" />
                     </div>
                 `;
             }
@@ -2080,38 +2772,63 @@ document.addEventListener('DOMContentLoaded', async () => {
                 </tr>
             `;
 
-            // Inline 6-Timeframe Band Tuning Handlers (Batch U3)
-            matrixBody.querySelectorAll('.btn-matrix-save').forEach(btn => {
-                btn.addEventListener('click', async (e) => {
-                    const tf = e.currentTarget.getAttribute('data-tf');
-                    const input = matrixBody.querySelector(`.matrix-band-input[data-tf="${tf}"]`);
-                    if (!input || !activeSymbol) return;
-                    const val = parseFloat(input.value);
-                    if (isNaN(val) || val <= 0) {
-                        showToast('Please enter a valid band width percentage (e.g. 20 for 20%)', 'error');
+            // Inline 6-Timeframe Band Tuning Handlers (Enter-to-save)
+            matrixBody.querySelectorAll('.matrix-band-input').forEach(input => {
+                input.addEventListener('keydown', async (e) => {
+                    if (e.key !== 'Enter') return;
+                    e.preventDefault();
+
+                    if (!activeSymbol || input.disabled) return;
+
+                    const tf = input.getAttribute('data-tf');
+                    const confirmedStr = input.getAttribute('data-confirmed-val') || '';
+                    const rawVal = input.value.trim();
+
+                    // Parse and validate numeric input
+                    const val = parseFloat(rawVal);
+                    if (isNaN(val) || !isFinite(val) || val <= 0 || val > 100) {
+                        showToast('Please enter a valid band width percentage between 0 and 100 (e.g. 20 for 20%)', 'error');
+                        input.value = confirmedStr;
                         return;
                     }
+
+                    // Check if value is unchanged
+                    const confirmedNum = parseFloat(confirmedStr);
+                    if (!isNaN(confirmedNum) && Math.abs(val - confirmedNum) < 0.0001) {
+                        return; // Avoid unnecessary request when unchanged
+                    }
+
+                    const targetSymbol = activeSymbol;
+                    input.disabled = true;
+
                     try {
-                        btn.disabled = true;
-                        btn.textContent = '...';
-                        await API.updateBand(activeSymbol, tf, val / 100);
+                        // 1. Commit band update to backend
+                        await API.updateBand(targetSymbol, tf, val / 100.0);
+                        input.setAttribute('data-confirmed-val', val.toFixed(1));
                         showToast(`${tf} band width updated to ${val}%`, 'success');
-                        await loadChartData(activeSymbol);
-                        await loadStockPanel(activeSymbol);
+
+                        // 2. Concurrently refresh chart and matrix using current drawer request ID
+                        currentStockDrawerRequestId++;
+                        const reqId = currentStockDrawerRequestId;
+
+                        const [chartRes, panelRes] = await Promise.allSettled([
+                            loadChartData(targetSymbol, reqId),
+                            loadStockPanel(targetSymbol, reqId)
+                        ]);
+
+                        if (chartRes.status === 'rejected') {
+                            console.warn('Chart refresh warning:', chartRes.reason);
+                            showToast(`Band width saved, but chart refresh failed: ${chartRes.reason?.message || 'Network error'}`, 'warning');
+                        }
+                        if (panelRes.status === 'rejected') {
+                            console.warn('Panel refresh warning:', panelRes.reason);
+                            showToast(`Band width saved, but matrix refresh failed: ${panelRes.reason?.message || 'Network error'}`, 'warning');
+                        }
                     } catch (err) {
                         showToast(`Failed to update band: ${err.message}`, 'error');
-                        btn.disabled = false;
-                        btn.textContent = '✓';
-                    }
-                });
-            });
-
-            matrixBody.querySelectorAll('.matrix-band-input').forEach(inp => {
-                inp.addEventListener('keydown', (e) => {
-                    if (e.key === 'Enter') {
-                        const tf = inp.getAttribute('data-tf');
-                        const saveBtn = matrixBody.querySelector(`.btn-matrix-save[data-tf="${tf}"]`);
-                        if (saveBtn) saveBtn.click();
+                        input.value = confirmedStr;
+                    } finally {
+                        input.disabled = false;
                     }
                 });
             });
@@ -2964,17 +3681,71 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
 
     // -------------------------------------------------------------------------
+    // 13. Half-Year (H) Policy Radio Setting Handler
+    // -------------------------------------------------------------------------
+    async function initHalfYearPolicy() {
+        try {
+            const settings = await API.getSettings();
+            const policy = settings.half_year_policy || 'prototype';
+            const radio = document.querySelector(`input[name="halfYearPolicyRadio"][value="${policy}"]`);
+            if (radio) radio.checked = true;
+        } catch (err) {
+            console.warn('Could not load system settings:', err);
+        }
+    }
+
+    document.querySelectorAll('input[name="halfYearPolicyRadio"]').forEach(radio => {
+        radio.addEventListener('change', async (e) => {
+            const selectedPolicy = e.target.value;
+            const policyLabel = selectedPolicy === 'calendar' ? 'Calendar Half-Year (H1/H2)' : 'Prototype-Compatible (2QE)';
+            try {
+                showToast(`Applying ${policyLabel}...`, 'info');
+                await API.updateSettings({ half_year_policy: selectedPolicy });
+                showToast(`Half-year policy set to ${policyLabel}`, 'success');
+
+                // Re-run active screen so table and metrics reflect the new policy
+                await runScreen();
+
+                // If stock drawer is open, refresh panel data and charts
+                if (activeSymbol) {
+                    await openStockDrawer(activeSymbol);
+                }
+            } catch (err) {
+                showToast(`Failed to update half-year policy: ${err.message}`, 'error');
+            }
+        });
+    });
+
+    // -------------------------------------------------------------------------
     // 14. Initialization Boot Sequence
     // -------------------------------------------------------------------------
     populateRankingSelects();
     await loadPresetsList();
+    await initHalfYearPolicy();
     const initialStatus = await updateStatus();
 
-    // If dataset has rows, run default screen immediately
+    // If dataset has rows, run default screen immediately (unconstrained fast startup)
     if (initialStatus && initialStatus.universe_count > 0) {
-        await runScreen();
+        await runScreen({ unconstrained: true });
+    } else if (initialStatus && initialStatus.status === 'BUILDING') {
+        _startBuildPolling();
     } else {
-        // Automatically pre-load demo dataset for offline demonstration
-        await loadDemoData();
+        // Real dataset is empty and not building: display clear empty/guidance state
+        // Never automatically switch the backend to demo mode
+        table.emptyMessage = 'Market dataset is empty. Click "Rebuild Live Dataset" to fetch live data or "Demo (5 Stocks)" to load sample data.';
+        table.render({
+            columns: [
+                { key: 'symbol', label: 'Symbol' },
+                { key: 'name', label: 'Security Name' },
+                { key: 'price', label: 'Price' }
+            ],
+            rows: []
+        });
+        if (initialStatus && initialStatus.status === 'FAILED') {
+            showToast(`Market dataset rebuild failed: ${initialStatus.error || 'Unknown error'}. Click "Demo (5 Stocks)" or "Rebuild Live Dataset".`, 'error');
+        } else {
+            showToast('Market dataset is empty. Click "Rebuild Live Dataset" or "Demo (5 Stocks)" to load data.', 'info');
+        }
     }
+
 });

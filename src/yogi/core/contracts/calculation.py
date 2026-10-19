@@ -46,3 +46,17 @@ class ICalcModule(ABC):
     def calculate(self, symbol: str, context: CalculationContext) -> CalculationResult:
         """Execute the calculation on market bars and return structured metrics."""
         pass
+
+    def supports_condition(self, condition_type: str) -> bool:
+        """Return True if this calculation module supports the specified dynamic condition type."""
+        return False
+
+    def calculate_dynamic(
+        self,
+        symbol: str,
+        rule: Any,
+        context: CalculationContext,
+    ) -> Any:
+        """Execute on-demand dynamic indicator calculation for a symbol and rule."""
+        return None
+

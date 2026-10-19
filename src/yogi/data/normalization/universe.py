@@ -114,7 +114,7 @@ def fetch_nse_universe(
     session: Optional[requests.Session] = None,
     fallback_csv_path: Optional[Union[str, Path]] = None,
     static_fallback: Optional[Sequence[str]] = None,
-    timeout: float = 15.0,
+    timeout: float = 4.0,
     use_network: bool = True,
 ) -> Sequence[str]:
     """Fetch the live NSE tradable equity universe with automatic offline fallback."""

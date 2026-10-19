@@ -6,8 +6,9 @@ Satisfies the frozen IDataProvider Core contract.
 Migrated from yogi.cockpit.demo under YOGI-F02 architectural correction.
 """
 
+from datetime import date, datetime
 from pathlib import Path
-from typing import Any, Callable, Mapping, Optional, Sequence
+from typing import Any, Callable, Mapping, Optional, Sequence, Union
 import pandas as pd
 
 from yogi.core.contracts.market_data import MarketBar, TickData
@@ -113,11 +114,44 @@ class DemoDataProvider(IDataProvider):
         symbol: str,
         exchange: str = "NSE",
         years: int = 10,
+        start_date: Optional[Union[datetime, date, str]] = None,
+        end_date: Optional[Union[datetime, date, str]] = None,
     ) -> Sequence[MarketBar]:
         sym = symbol.strip().upper()
         bars = self._bars.get(sym, [])
         if not bars:
             return ()
+
+        if start_date is not None or end_date is not None:
+            if start_date is None and end_date is not None:
+                raise ValueError("Cannot specify end_date without start_date; start_date is required")
+
+            from yogi.market.calendar import parse_date_boundary
+            dt_start, _ = parse_date_boundary(start_date, "start_date")
+            dt_end, _ = parse_date_boundary(end_date, "end_date") if end_date is not None else (None, None)
+
+            if dt_end is not None:
+                if (dt_start.tzinfo is None) != (dt_end.tzinfo is None):
+                    raise ValueError("Cannot compare timezone-aware and timezone-naive date boundaries")
+                if dt_start >= dt_end:
+                    raise ValueError(
+                        f"Invalid date range: start_date ({start_date}) must be strictly earlier than end_date ({end_date})"
+                    )
+
+            filtered = []
+            for b in bars:
+                ts = b.timestamp
+                ts_cmp = ts.replace(tzinfo=None) if hasattr(ts, "tzinfo") and ts.tzinfo is not None else ts
+                s_cmp = dt_start.replace(tzinfo=None) if dt_start.tzinfo is not None else dt_start
+                if ts_cmp < s_cmp:
+                    continue
+                if dt_end is not None:
+                    e_cmp = dt_end.replace(tzinfo=None) if dt_end.tzinfo is not None else dt_end
+                    if ts_cmp >= e_cmp:
+                        continue
+                filtered.append(b)
+            return tuple(filtered)
+
         if years >= 10:
             return tuple(bars)
         # Approximate 252 trading days per year
@@ -129,8 +163,19 @@ class DemoDataProvider(IDataProvider):
         symbols: Sequence[str],
         exchange: str = "NSE",
         years: int = 10,
+        start_date: Optional[Union[datetime, date, str]] = None,
+        end_date: Optional[Union[datetime, date, str]] = None,
     ) -> Mapping[str, Sequence[MarketBar]]:
-        return {s: self.daily_history(s, exchange=exchange, years=years) for s in symbols}
+        return {
+            s: self.daily_history(
+                s,
+                exchange=exchange,
+                years=years,
+                start_date=start_date,
+                end_date=end_date,
+            )
+            for s in symbols
+        }
 
     def last_price(self, symbol: str, exchange: str = "NSE") -> Optional[float]:
         bars = self.daily_history(symbol, exchange=exchange)
