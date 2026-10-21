@@ -235,6 +235,7 @@ def run_screen(
         ranking_metric=req.ranking_metric,
         ranking_order=req.ranking_order,
         selection_cutoffs=req.selection_cutoffs,
+        selection_mode=req.selection_mode,
         limit=req.limit,
     )
 
@@ -495,6 +496,7 @@ def run_strategy(
             ranking_metric=u.get("ranking_metric"),
             ranking_order=u.get("ranking_order", RankingOrder.DESCENDING),
             selection_cutoffs=cutoffs,
+            selection_mode=u.get("selection_mode", "all"),
             limit=u.get("limit"),
         )
     else:
@@ -955,6 +957,7 @@ def export_screen(
             ranking_metric=req.ranking_metric,
             ranking_order=req.ranking_order,
             selection_cutoffs=req.selection_cutoffs,
+            selection_mode=req.selection_mode,
             limit=req.limit,
         )
 

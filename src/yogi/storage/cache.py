@@ -342,11 +342,14 @@ class MarketBarsCache:
         bars_map: Mapping[str, Sequence[MarketBar]],
         exchange: str = "NSE",
         provider: str = "yfinance",
+        sync_monolith: bool = True,
     ) -> Optional[Path]:
         """Atomically merge and persist daily market bars across symbols.
 
-        Writes symbol-partitioned files and updates the consolidated monolithic
-        cache file for full backward compatibility.
+        Writes symbol-partitioned files. If sync_monolith is True (the default),
+        also updates the consolidated monolithic cache file for full backward compatibility.
+        When sync_monolith is False, updates only the affected symbol partition files
+        and in-memory snapshot caches, avoiding expensive whole-universe serialization.
         """
         if not bars_map:
             return None
@@ -366,6 +369,81 @@ class MarketBarsCache:
                 part_dir.mkdir(parents=True, exist_ok=True)
                 target_path = self._bars_path(ex, pv)
                 temp_path = self.cache_dir / f"{target_path.name}.tmp"
+
+                if not sync_monolith:
+                    # Granular symbol-partition persistence:
+                    # Persist only affected symbol partitions and in-memory caches,
+                    # bypassing whole-universe monolithic deserialization & serialization.
+                    updated_partitions: dict[str, tuple[MarketBar, ...]] = {}
+                    last_written_path: Optional[Path] = None
+
+                    for sym, bars in bars_map.items():
+                        if not bars:
+                            continue
+                        sym_key = str(sym).strip().upper()
+                        if not sym_key:
+                            continue
+
+                        # 1. Resolve prior bars for this specific symbol:
+                        # Check in-memory symbol snapshot, then universe snapshot, then disk partition
+                        prior_bars: Optional[Sequence[MarketBar]] = None
+                        with self._snapshot_lock:
+                            prior_bars = self._symbol_snapshots.get((ex, pv, sym_key))
+                            if prior_bars is None:
+                                snap = self._snapshots.get(ns_key)
+                                if snap is not None:
+                                    prior_bars = snap.get(sym_key)
+
+                        if prior_bars is None:
+                            p_path = self._partition_path(ex, pv, sym_key)
+                            if p_path.is_file():
+                                try:
+                                    with open(p_path, "rb") as pfh:
+                                        pdata = pickle.load(pfh)
+                                    if isinstance(pdata, (list, tuple)) and len(pdata) > 0 and isinstance(pdata[0], MarketBar):
+                                        prior_bars = tuple(pdata)
+                                except Exception as exc:
+                                    logger.warning("MarketBarsCache: Failed reading partition for '%s': %s", sym_key, exc)
+
+                        merged = merge_market_bars(prior_bars, bars)
+                        if merged:
+                            updated_partitions[sym_key] = merged
+
+                    if not updated_partitions:
+                        for sym in bars_map:
+                            p_check = self._partition_path(ex, pv, str(sym).strip().upper())
+                            if p_check.is_file():
+                                return p_check
+                        return None
+
+                    # 2. Atomically write each symbol partition file
+                    for sym_key, pbars in updated_partitions.items():
+                        p_target = self._partition_path(ex, pv, sym_key)
+                        p_tmp = part_dir / f"{p_target.name}.tmp"
+                        written_partition_tmps.append(p_tmp)
+                        with open(p_tmp, "wb") as pfh:
+                            pickle.dump(pbars, pfh, protocol=pickle.HIGHEST_PROTOCOL)
+                            pfh.flush()
+                            os.fsync(pfh.fileno())
+                        os.replace(p_tmp, p_target)
+                        last_written_path = p_target
+
+                    # 3. Post-commit publication under _snapshot_lock
+                    with self._snapshot_lock:
+                        for sym_key, pbars in updated_partitions.items():
+                            self._symbol_snapshots[(ex, pv, sym_key)] = pbars
+                        if ns_key in self._snapshots:
+                            updated_universe = dict(self._snapshots[ns_key])
+                            updated_universe.update(updated_partitions)
+                            self._snapshots[ns_key] = updated_universe
+                        self._uncertain_namespaces.discard(ns_key)
+
+                    logger.info(
+                        "MarketBarsCache: Persisted %d symbol partition(s) in '%s' (monolith sync bypassed)",
+                        len(updated_partitions),
+                        part_dir,
+                    )
+                    return last_written_path
 
                 # 1. Obtain baseline store for full universe
                 with self._snapshot_lock:

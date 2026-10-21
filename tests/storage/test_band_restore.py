@@ -46,8 +46,8 @@ def test_valid_restore_replaces_matrix_and_creates_safety_snapshot(repo: CsvBand
     success = repo.restore_backup("bands_2026-05-01.csv")
     assert success is True
 
-    # Active bands should be replaced
-    assert repo.get_band("STOCK_OLD", "D") is None
+    # Active bands should be replaced (unassigned stock resolves to default 0.0)
+    assert repo.get_band("STOCK_OLD", "D") == 0.0
     assert repo.get_band("STOCK_RESTORED", "D") == 0.12
     assert repo.get_band("STOCK_RESTORED", "Y") == 0.22
 

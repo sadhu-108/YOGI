@@ -148,19 +148,23 @@ class CsvBandsRepository(IBandsRepository, IBandAuditRepository, IBandBackupServ
     # IBandsRepository
     # -------------------------------------------------------------------------
 
-    def get_band(self, symbol: str, timeframe: str) -> Optional[float]:
-        """Return the band width fraction for a symbol and timeframe."""
+    def get_band(self, symbol: str, timeframe: str) -> float:
+        """Return the band width fraction for a symbol and timeframe, defaulting to 0.0 if unassigned."""
         sym = symbol.strip().upper()
         tf = timeframe.strip().upper()
         with self._lock:
-            return self._bands.get(sym, {}).get(tf)
+            val = self._bands.get(sym, {}).get(tf)
+            return float(val) if val is not None else 0.0
 
-    def get_all_bands(self, symbol: str) -> Mapping[str, Optional[float]]:
-        """Return band width fractions across all standard timeframes."""
+    def get_all_bands(self, symbol: str) -> Mapping[str, float]:
+        """Return band width fractions across all standard timeframes, defaulting to 0.0 if unassigned."""
         sym = symbol.strip().upper()
         with self._lock:
             sym_bands = self._bands.get(sym, {})
-            return {tf: sym_bands.get(tf) for tf in BAND_TIMEFRAMES}
+            return {
+                tf: (float(sym_bands[tf]) if sym_bands.get(tf) is not None else 0.0)
+                for tf in BAND_TIMEFRAMES
+            }
 
     def set_band(
         self,

@@ -15,6 +15,7 @@ class IBarsCache(Protocol):
         bars_map: Mapping[str, Sequence[MarketBar]],
         exchange: str = ...,
         provider: str = ...,
+        sync_monolith: bool = ...,
     ) -> Optional[Path]:
         """Atomically merge and persist daily market bars across symbols."""
         ...

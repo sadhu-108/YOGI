@@ -43,6 +43,14 @@ class CockpitTable {
 
     _renderHeaders() {
         this.theadRow.innerHTML = '';
+
+        // Sequential row position column header (#)
+        const seqTh = document.createElement('th');
+        seqTh.className = 'seq-num-th';
+        seqTh.textContent = '#';
+        seqTh.title = 'Sequential result position';
+        this.theadRow.appendChild(seqTh);
+
         this.columns.forEach(col => {
             const th = document.createElement('th');
             th.className = 'sortable-th';
@@ -132,7 +140,7 @@ class CockpitTable {
         if (this.displayRows.length === 0) {
             const tr = document.createElement('tr');
             const td = document.createElement('td');
-            td.colSpan = Math.max(this.columns.length, 1);
+            td.colSpan = Math.max(this.columns.length + 1, 1);
             td.className = 'empty-state';
             td.textContent = this.rawRows.length === 0
                 ? (this.emptyMessage || 'No records matched the qualification/selection criteria.')
@@ -142,7 +150,7 @@ class CockpitTable {
             return;
         }
 
-        this.displayRows.forEach(row => {
+        this.displayRows.forEach((row, rowIndex) => {
             const tr = document.createElement('tr');
             const sym = row['symbol'] || '';
             if (sym && sym === this.activeSymbol) {
@@ -155,6 +163,12 @@ class CockpitTable {
                     this.onRowSelect(sym);
                 }
             });
+
+            // Sequential position cell (#)
+            const seqTd = document.createElement('td');
+            seqTd.className = 'seq-num-td';
+            seqTd.textContent = String(rowIndex + 1);
+            tr.appendChild(seqTd);
 
             this.columns.forEach(col => {
                 const td = document.createElement('td');

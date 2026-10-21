@@ -178,6 +178,50 @@
                     <div id="emaQuickToggles" style="display: none;"></div>
                 </div>
 
+                <!-- Dedicated Rate of Change (ROC) Condition Configuration Panel -->
+                <div class="roc-builder-panel" id="rocBuilderSection">
+                    <div class="roc-builder-header">
+                        <div class="roc-builder-heading-group">
+                            <h4 class="roc-builder-title">Rate of Change (ROC) Condition</h4>
+                            <p class="roc-builder-subtitle">Filter by momentum performance across key timeframes.</p>
+                        </div>
+                    </div>
+                    <div class="roc-builder-controls-grid">
+                        <div class="roc-control-group">
+                            <label for="rocTimeframeSelect" class="roc-control-label">Timeframe:</label>
+                            <select id="rocTimeframeSelect" class="form-control form-control-sm roc-select">
+                                <option value="" selected>— None (Off) —</option>
+                                <option value="current_month">Current Month</option>
+                                <option value="last_month">Last Month</option>
+                                <option value="last_to_last_month">Last to Last Month</option>
+                                <option value="current_quarter">Current Quarter</option>
+                                <option value="last_quarter">Last Quarter</option>
+                                <option value="current_half_year">Current Half-Year</option>
+                                <option value="ytd">YTD / Current Year</option>
+                                <option value="last_year">Last Year</option>
+                                <option value="preceding_last_4_years">Preceding Last 4 Years</option>
+                                <option value="avg_preceding_last_5_years">Average of Preceding Last 5 Years</option>
+                            </select>
+                        </div>
+                        <div class="roc-control-group">
+                            <label for="rocBucketSelect" class="roc-control-label">ROC Percentage Bucket:</label>
+                            <select id="rocBucketSelect" class="form-control form-control-sm roc-select">
+                                <option value="lt_10">Less than 10% (0% to &lt;10%)</option>
+                                <option value="10_to_20">10% to 20%</option>
+                                <option value="20_to_30">20% to 30%</option>
+                                <option value="30_to_40">30% to 40%</option>
+                                <option value="40_to_50">40% to 50%</option>
+                                <option value="50_to_60">50% to 60%</option>
+                                <option value="60_to_70">60% to 70%</option>
+                                <option value="70_to_80">70% to 80%</option>
+                                <option value="80_to_90">80% to 90%</option>
+                                <option value="90_to_100">90% to 100%</option>
+                                <option value="gt_100" selected>More than 100% (&gt;100%)</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- Obsolete condition controls removed from visible UI; preserved for API payload & test assertions -->
                 <div class="legacy-condition-controls" style="display: none;">
                     <div class="shortcuts-panel">
@@ -222,90 +266,239 @@
                 </div>
             </div>
 
-            <!-- CARD 3: RANKING (ORDER) -->
-            <div class="card workbench-section" id="sectionRanking">
+            <!-- UNIFIED SECTION 3: RANKING -->
+            <div class="card workbench-section" id="sectionRankingConsole">
                 <div class="section-title">
                     <span class="step-num">3</span>
-                    <h3>Ranking (ORDER)</h3>
-                </div>
-                <div class="form-group">
-                    <label for="rankingMetric">Primary Ranking Metric:</label>
-                    <select id="rankingMetric" class="form-control form-control-sm">
-                        <option value="">None (Unranked)</option>
-                    </select>
-                </div>
-                <div class="form-group">
-                    <label for="rankingOrder">Direction:</label>
-                    <select id="rankingOrder" class="form-control form-control-sm">
-                        <option value="desc" selected>Descending (Highest #1)</option>
-                        <option value="asc">Ascending (Lowest #1)</option>
-                    </select>
+                    <h3>Ranking</h3>
                 </div>
 
-                <!-- Progressive Disclosure: Secondary Tie-Breaker -->
-                <div class="advanced-disclosure mt-2">
-                    <details>
-                        <summary class="disclosure-toggle">Secondary Ranking (Tie-Breaker)</summary>
-                        <div class="disclosure-content pt-2">
-                            <div class="form-group">
-                                <label for="secondaryRankingMetric">Tie-Breaker Metric:</label>
-                                <select id="secondaryRankingMetric" class="form-control form-control-sm">
-                                    <option value="">Default (Symbol Ascending)</option>
-                                </select>
+                <!-- SUBSECTION 1: PRIMARY RANKING -->
+                <div class="ranking-subsection" id="sectionRanking">
+                    <div class="ranking-subsection-header">
+                        <span class="ranking-substep-num">01</span>
+                        <h3 class="ranking-subsection-title">Primary Ranking</h3>
+                        <span class="pipeline-stage-tag" style="display: none;">Ranking (ORDER)</span>
+                    </div>
+                    <div class="form-group mb-2">
+                        <label for="rankingMetric" class="control-label">Primary Ranking Period:</label>
+                        <select id="rankingMetric" class="form-control form-control-sm">
+                            <option value="M_CUR" selected>M — Monthly</option>
+                            <option value="YROC">Y — Yearly</option>
+                            <option value="WROC">W — Weekly</option>
+                            <option value="Q_CUR">Q — Quarterly</option>
+                            <option value="H_CUR">H — Half-yearly</option>
+                            <option value="DROC">D — Daily</option>
+                            <option value="YTD">YTD — Year to date</option>
+                            <option value="3M">3M — Last 3 months</option>
+                            <option value="3Y">3Y — Last 3 years</option>
+                            <option value="4Y">4Y — Preceding 4 years</option>
+                            <option value="5Y">5Y — Preceding 5 years</option>
+                            <option value="AVG5Y">AVG5Y — Average of 5 completed years</option>
+                        </select>
+                    </div>
+                    <div class="form-group mb-2">
+                        <label class="control-label d-block mb-1">Direction:</label>
+                        <div class="mode-toggle-group direction-toggle-group">
+                            <label class="mode-btn active" id="labelOrderDesc">
+                                <input type="radio" name="rankingDirection" id="radioOrderDesc" value="desc" checked> Highest performance first (best to worst)
+                            </label>
+                            <label class="mode-btn" id="labelOrderAsc">
+                                <input type="radio" name="rankingDirection" id="radioOrderAsc" value="asc"> Lowest performance first (worst to best)
+                            </label>
+                        </div>
+                        <!-- Preserved select for backward-compatibility & test assertions -->
+                        <select id="rankingOrder" style="display: none;">
+                            <option value="desc" selected>Highest First (Best #1)</option>
+                            <option value="asc">Lowest First (Worst #1)</option>
+                        </select>
+                    </div>
+
+                    <!-- Redundant preview box hidden per requirement A (DOM preserved for app.js and tests) -->
+                    <div id="primaryRankIndicator" class="active-rank-badge mb-2" style="display: none;" aria-hidden="true">
+                        <span class="badge-dot"></span> <span id="primaryRankIndicatorText">Primary: Month (M_CUR) [Highest First]</span>
+                    </div>
+
+                    <!-- Secondary Ranking (Tie-Breaker) hidden per requirement A (underlying state/handlers preserved) -->
+                    <div class="advanced-disclosure mt-2" style="display: none;" aria-hidden="true">
+                        <details>
+                            <summary class="disclosure-toggle">Secondary Ranking (Tie-Breaker)</summary>
+                            <div class="disclosure-content pt-2">
+                                <div class="form-group">
+                                    <label for="secondaryRankingMetric">Tie-Breaker Metric:</label>
+                                    <select id="secondaryRankingMetric" class="form-control form-control-sm">
+                                        <option value="">Default (Symbol Ascending)</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </details>
+                    </div>
+                </div>
+
+                <div class="ranking-subtle-divider"></div>
+
+                <!-- SUBSECTION 2: RANK FILTER -->
+                <div class="ranking-subsection" id="sectionSelection">
+                    <div class="ranking-subsection-header">
+                        <span class="ranking-substep-num">02</span>
+                        <h3 class="ranking-subsection-title">Rank Filter</h3>
+                        <span class="pipeline-stage-tag" style="display: none;">Selection (SHOW)</span>
+                    </div>
+
+                    <!-- Rank Filter Enable / Disable Toggle -->
+                    <div class="rank-filter-header d-flex align-items-center justify-content-between mb-2">
+                        <label class="switch-control" for="rankFilterToggle">
+                            <input type="checkbox" id="rankFilterToggle" checked>
+                            <span class="switch-slider"></span>
+                            <span class="switch-title">Enable Rank Filter</span>
+                        </label>
+                        <span id="rankFilterStatus" class="badge badge-enabled">Active</span>
+                    </div>
+
+                    <!-- Rank Filter Body -->
+                    <div id="rankFilterBody" class="rank-filter-panel mb-2">
+                        <div class="form-group mb-2">
+                            <label for="rankCutoffThreshold" class="control-label">Maximum Rank Position (N or better):</label>
+                            <input type="number" id="rankCutoffThreshold" class="form-control form-control-sm" value="100" min="1" max="2000" placeholder="100">
+                        </div>
+
+                        <!-- Cutoff Presets Pills: Top 10, Top 25, Top 50, Top 100 -->
+                        <div class="cutoff-presets-pills mb-2">
+                            <button type="button" class="cutoff-pill" data-cutoff="10">Top 10</button>
+                            <button type="button" class="cutoff-pill" data-cutoff="25">Top 25</button>
+                            <button type="button" class="cutoff-pill" data-cutoff="50">Top 50</button>
+                            <button type="button" class="cutoff-pill active" data-cutoff="100">Top 100</button>
+                        </div>
+
+                        <!-- ALL / ANY Combination Mode Toggle -->
+                        <div class="form-group mb-2">
+                            <label class="control-label d-block mb-1">Combination Rule:</label>
+                            <div class="mode-toggle-group">
+                                <label class="mode-btn active" id="labelModeAll">
+                                    <input type="radio" name="selectionMode" id="radioModeAll" value="ALL" checked> ALL (every selected period)
+                                </label>
+                                <label class="mode-btn" id="labelModeAny">
+                                    <input type="radio" name="selectionMode" id="radioModeAny" value="ANY"> ANY (at least one period)
+                                </label>
                             </div>
                         </div>
-                    </details>
-                </div>
-            </div>
 
-            <!-- CARD 4: SELECTION (SHOW) -->
-            <div class="card workbench-section" id="sectionSelection">
-                <div class="section-title">
-                    <span class="step-num">4</span>
-                    <h3>Selection (SHOW)</h3>
-                </div>
-                <div class="form-group">
-                    <label for="screenLimit">Select Top N:</label>
-                    <input type="number" id="screenLimit" class="form-control form-control-sm" value="20" min="1" max="2000" placeholder="All Qualified">
-                </div>
-
-                <!-- Quick Selection Pill Buttons -->
-                <div class="quick-limit-pills">
-                    <button type="button" class="limit-pill" data-limit="10">Top 10</button>
-                    <button type="button" class="limit-pill active" data-limit="20">Top 20</button>
-                    <button type="button" class="limit-pill" data-limit="50">Top 50</button>
-                    <button type="button" class="limit-pill" data-limit="100">Top 100</button>
-                    <button type="button" class="limit-pill" data-limit="0">All</button>
-                </div>
-
-                <!-- Progressive Disclosure: Rank Survival Cutoffs -->
-                <div class="advanced-disclosure mt-2">
-                    <details open>
-                        <summary class="disclosure-toggle">Rank Survival Cutoffs</summary>
-                        <div class="disclosure-content pt-2">
-                            <div class="cutoff-header-actions mb-1">
-                                <small class="text-muted">Filter stocks by ordinal rank thresholds:</small>
-                                <select id="cutoffTemplateSelect" class="form-control form-control-xs cutoff-template-select" title="Apply common multi-period cutoff template">
-                                    <option value="">+ Template ▾</option>
-                                    <option value="top100_m_y">Top 100 Month &amp; Year</option>
-                                    <option value="top50_all_q">Top 50 Across Quarters</option>
-                                    <option value="top100_all_tf">Top 100 All Timeframes (D..Y)</option>
-                                </select>
+                        <!-- Filter Timeframes Grid (All 12 Periods Supported) -->
+                        <div class="form-group mb-2">
+                            <label class="control-label d-block mb-1">Filter Periods (Rank &le; N):</label>
+                            <div class="rank-periods-grid">
+                                <label class="period-chip"><input type="checkbox" class="rank-filter-tf" value="RANK_D"> Day (D)</label>
+                                <label class="period-chip"><input type="checkbox" class="rank-filter-tf" value="RANK_W"> Week (W)</label>
+                                <label class="period-chip"><input type="checkbox" class="rank-filter-tf" value="RANK_M" checked> Month (M)</label>
+                                <label class="period-chip"><input type="checkbox" class="rank-filter-tf" value="RANK_Q"> Quarter (Q)</label>
+                                <label class="period-chip"><input type="checkbox" class="rank-filter-tf" value="RANK_H"> Half (H)</label>
+                                <label class="period-chip"><input type="checkbox" class="rank-filter-tf" value="RANK_Y" checked> Year (Y)</label>
+                                <label class="period-chip"><input type="checkbox" class="rank-filter-tf" value="RANK_YTD"> YTD</label>
+                                <label class="period-chip"><input type="checkbox" class="rank-filter-tf" value="RANK_3M"> 3M</label>
+                                <label class="period-chip"><input type="checkbox" class="rank-filter-tf" value="RANK_3Y"> 3Y</label>
+                                <label class="period-chip"><input type="checkbox" class="rank-filter-tf" value="RANK_4Y"> 4Y</label>
+                                <label class="period-chip"><input type="checkbox" class="rank-filter-tf" value="RANK_5Y"> 5Y</label>
+                                <label class="period-chip"><input type="checkbox" class="rank-filter-tf" value="RANK_AVG5Y"> AVG5Y</label>
                             </div>
-                            <div id="cutoffsContainer" class="cutoffs-container"></div>
-                            <button type="button" id="addCutoffBtn" class="btn btn-ghost btn-xs mt-1">+ Add Rank Cutoff (e.g. Rank &le; 100)</button>
                         </div>
-                    </details>
+
+                        <!-- Redundant preview box hidden per requirement A (DOM preserved for app.js and tests) -->
+                        <div id="activeRankFilterSummary" class="active-rule-summary mb-1" style="display: none;" aria-hidden="true">
+                            Filter: Rank &le; 100 in Month, Year [ALL]
+                        </div>
+                        <small class="text-muted d-block mb-2">Note: Rank filter is skipped when disabled or when no periods are selected.</small>
+
+                        <!-- Progressive Disclosure: Custom Period-Specific Cutoffs -->
+                        <div class="advanced-disclosure mt-2">
+                            <details>
+                                <summary class="disclosure-toggle">Custom Period Cutoffs</summary>
+                                <div class="disclosure-content pt-2">
+                                    <div class="cutoff-header-actions mb-1">
+                                        <small class="text-muted">Specific period thresholds:</small>
+                                        <select id="cutoffTemplateSelect" class="form-control form-control-xs cutoff-template-select" title="Apply common multi-period cutoff template">
+                                            <option value="">+ Template &#9662;</option>
+                                            <option value="top100_m_y">Top 100 Month &amp; Year</option>
+                                            <option value="top50_all_q">Top 50 Across Quarters</option>
+                                            <option value="top100_all_tf">Top 100 All Timeframes (D..Y)</option>
+                                        </select>
+                                    </div>
+                                    <div id="cutoffsContainer" class="cutoffs-container"></div>
+                                    <button type="button" id="addCutoffBtn" class="btn btn-ghost btn-xs mt-1">+ Add Custom Period Cutoff</button>
+                                </div>
+                            </details>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="ranking-subtle-divider"></div>
+
+                <!-- SUBSECTION 3: RANKING PERIODS TO RETURN -->
+                <div class="ranking-subsection" id="sectionRankingReturn">
+                    <div class="ranking-subsection-header">
+                        <span class="ranking-substep-num">03</span>
+                        <h3 class="ranking-subsection-title">Ranking Periods to Return</h3>
+                    </div>
+                    <div class="rank-columns-section mb-2">
+                        <div class="d-flex align-items-center justify-content-between mb-1">
+                            <label class="control-label mb-0 font-weight-bold">Return Rank Columns:</label>
+                            <div class="btn-group btn-group-xs">
+                                <button type="button" id="btnRankColsAll" class="btn btn-ghost btn-xs">Select All</button>
+                                <button type="button" id="btnRankColsPrimary" class="btn btn-ghost btn-xs">Primary Only</button>
+                                <button type="button" id="btnRankColsClear" class="btn btn-ghost btn-xs">Clear</button>
+                            </div>
+                        </div>
+                        <div class="rank-periods-grid">
+                            <label class="period-chip"><input type="checkbox" class="rank-col-tf" value="RANK_D"> Day (D)</label>
+                            <label class="period-chip"><input type="checkbox" class="rank-col-tf" value="RANK_W"> Week (W)</label>
+                            <label class="period-chip"><input type="checkbox" class="rank-col-tf" value="RANK_M" checked> Month (M)</label>
+                            <label class="period-chip"><input type="checkbox" class="rank-col-tf" value="RANK_Q"> Quarter (Q)</label>
+                            <label class="period-chip"><input type="checkbox" class="rank-col-tf" value="RANK_H"> Half (H)</label>
+                            <label class="period-chip"><input type="checkbox" class="rank-col-tf" value="RANK_Y" checked> Year (Y)</label>
+                            <label class="period-chip"><input type="checkbox" class="rank-col-tf" value="RANK_YTD"> YTD</label>
+                            <label class="period-chip"><input type="checkbox" class="rank-col-tf" value="RANK_3M"> 3M</label>
+                            <label class="period-chip"><input type="checkbox" class="rank-col-tf" value="RANK_3Y"> 3Y</label>
+                            <label class="period-chip"><input type="checkbox" class="rank-col-tf" value="RANK_4Y"> 4Y</label>
+                            <label class="period-chip"><input type="checkbox" class="rank-col-tf" value="RANK_5Y"> 5Y</label>
+                            <label class="period-chip"><input type="checkbox" class="rank-col-tf" value="RANK_AVG5Y"> AVG5Y</label>
+                        </div>
+                        <small class="text-muted d-block mt-2">Controls which rank columns appear in results. Does not change qualification or ordering.</small>
+                    </div>
+                </div>
+
+                <div class="ranking-subtle-divider"></div>
+
+                <!-- SUBSECTION 4: FINAL LIST DISPLAY -->
+                <div class="ranking-subsection" id="sectionFinalDisplay">
+                    <div class="ranking-subsection-header">
+                        <span class="ranking-substep-num">04</span>
+                        <h3 class="ranking-subsection-title">Final List Display</h3>
+                    </div>
+                    <div class="display-limit-section">
+                        <label for="screenLimit" class="control-label">Display Limit (Top N Records to Show):</label>
+                        <input type="number" id="screenLimit" class="form-control form-control-sm" value="20" min="1" max="2000" placeholder="All Qualified">
+
+                        <!-- Quick Selection Pill Buttons -->
+                        <div class="quick-limit-pills">
+                            <button type="button" class="limit-pill" data-limit="10">Top 10</button>
+                            <button type="button" class="limit-pill active" data-limit="20">Top 20</button>
+                            <button type="button" class="limit-pill" data-limit="50">Top 50</button>
+                            <button type="button" class="limit-pill" data-limit="100">Top 100</button>
+                            <button type="button" class="limit-pill" data-limit="0">All</button>
+                        </div>
+                        <small class="text-muted d-block mt-1">Slices final rows after qualification, primary ranking, and rank filtering.</small>
+                    </div>
                 </div>
             </div>
 
             <!-- CARD 5: DISPLAY COLUMNS & ACTIONS -->
             <div class="card workbench-section" id="sectionColumns">
                 <div class="section-title">
-                    <span class="step-num">5</span>
+                    <span class="step-num">05</span>
                     <h3>Display Columns & Actions</h3>
                 </div>
-                <div class="column-presets-bar">
+
+                <!-- Presets and active column indicator removed from visible UI; DOM preserved for column state and test assertions -->
+                <div class="column-presets-bar" style="display: none;" aria-hidden="true">
                     <button type="button" class="col-preset-btn active" data-preset="summary">Default</button>
                     <button type="button" class="col-preset-btn" data-preset="returns">Returns</button>
                     <button type="button" class="col-preset-btn" data-preset="sprint">Speed/Sprint</button>
@@ -314,7 +507,7 @@
                     <button type="button" class="col-preset-btn" data-preset="strength">Strength (DMI)</button>
                     <button type="button" class="col-preset-btn" data-preset="all">All Available</button>
                 </div>
-                <div class="form-group mt-2">
+                <div class="form-group mt-2" style="display: none;" aria-hidden="true">
                     <input type="text" id="customColumns" class="form-control form-control-sm" placeholder="Summary columns active">
                 </div>
 
@@ -327,10 +520,11 @@
                             <span class="icon">⏹</span> CANCEL
                         </button>
                     </div>
-                    <button type="button" id="openRaceBtn" class="btn btn-secondary btn-block mt-2" title="View multi-stock sprint race cumulative % return curves">
+                    <!-- Sprint Race and export actions removed from visible UI; DOM preserved for event handlers and test assertions -->
+                    <button type="button" id="openRaceBtn" class="btn btn-secondary btn-block mt-2" style="display: none;" aria-hidden="true" title="View multi-stock sprint race cumulative % return curves">
                         <span class="icon">🏁</span> SPRINT RACE
                     </button>
-                    <div class="export-btn-group mt-2">
+                    <div class="export-btn-group mt-2" style="display: none;" aria-hidden="true">
                         <button type="button" id="exportXlsxBtn" class="btn btn-secondary btn-sm" title="Export formatted Excel (.xlsx)">📥 XLSX</button>
                         <button type="button" id="exportCsvBtn" class="btn btn-secondary btn-sm" title="Export standard CSV (.csv)">📄 CSV</button>
                         <button type="button" id="exportJsonBtn" class="btn btn-secondary btn-sm" title="Export JSON (.json)">📋 JSON</button>
@@ -543,7 +737,7 @@
                 </div>
                 <div class="band-tuner">
                     <label for="bandWidthInput">Band %:</label>
-                    <input type="number" id="bandWidthInput" step="0.5" min="0" max="100" placeholder="12.0">
+                    <input type="number" id="bandWidthInput" step="0.5" min="0" max="100" placeholder="0.0">
                     <button id="saveBandBtn" class="btn btn-sm btn-outline">Save</button>
                 </div>
             </div>

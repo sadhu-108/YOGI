@@ -74,3 +74,13 @@ ehthumbs.db
 
 # Runtime generated band backups (keep .gitkeep, ignore runtime backup snapshots)
 /data/band_backups/bands_*.csv
+
+# Runtime market data cache (large binary pickles > 100MB)
+/data/cache/
+
+# Local backup checkpoints
+/backups/
+
+# Runtime band audit log
+/data/band_changes.csv
+

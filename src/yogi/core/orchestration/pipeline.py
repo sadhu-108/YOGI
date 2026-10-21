@@ -42,6 +42,35 @@ def _extract_dynamic_rules(group: Optional[Union[FilterRuleSpec, FilterGroupSpec
     return rules
 
 
+def _resolve_precalculated_field(rule: FilterRuleSpec, sample_rec: Mapping[str, Any]) -> Optional[str]:
+    """Check if a dynamic rule maps to an existing precalculated metric in records.
+
+    Returns the precalculated field name in sample_rec if an exact mathematical
+    match exists, otherwise None.
+    """
+    if not sample_rec:
+        return None
+
+    # 1. Exact field name already present in records
+    if rule.field and rule.field in sample_rec:
+        return rule.field
+
+    # 2. Standard EMA 3/5 on supported timeframes with default forming candle semantics
+    if rule.condition_type == "ema":
+        tf = (rule.timeframe or (rule.params.get("timeframe") if rule.params else None) or "D").strip().upper()
+        p1 = rule.p1 if rule.p1 is not None else (rule.params.get("p1") if rule.params else None)
+        p2 = rule.p2 if rule.p2 is not None else (rule.params.get("p2") if rule.params else None)
+        params = rule.params or {}
+
+        if (p1, p2) in ((3, 5), (5, 3)) and tf in ("D", "W", "M", "Q", "H", "Y"):
+            if not params.get("closed_candle_only", False):
+                precalc_key = f"EMA_{tf}"
+                if precalc_key in sample_rec:
+                    return precalc_key
+
+    return None
+
+
 # Backward compatibility alias
 _extract_dynamic_ema_rules = _extract_dynamic_rules
 
@@ -340,9 +369,38 @@ class PipelineOrchestrator:
                 ex = sample_rec.get("exchange", "NSE")
                 pv = sample_rec.get("provider", "demo" if sample_rec.get("price") is not None and "DEMO" in str(sample_rec.get("name", "")).upper() else "yfinance")
 
-                # Batch lookup daily bars from cache
+                # Separate dynamic rules into those resolvable from precalculated records vs genuinely dynamic
+                rules_to_calculate: list[tuple[FilterRuleSpec, str, Optional[str], str]] = []
+                for rule in dynamic_rules:
+                    tf = (rule.timeframe or (rule.params.get("timeframe") if rule.params else None) or "D").strip().upper()
+                    p1 = rule.p1 if rule.p1 is not None else (rule.params.get("p1") if rule.params else None)
+                    p2 = rule.p2 if rule.p2 is not None else (rule.params.get("p2") if rule.params else None)
+
+                    if p1 is not None and p2 is not None:
+                        default_key = f"{rule.condition_type.upper()}_{tf}_{p1}_{p2}"
+                    elif p1 is not None:
+                        default_key = f"{rule.condition_type.upper()}_{tf}_{p1}"
+                    else:
+                        default_key = f"{rule.condition_type.upper()}_{tf}"
+
+                    field_key = rule.field or default_key
+                    canonical_key = default_key if (rule.field and rule.field != default_key) else None
+
+                    precalc_key = _resolve_precalculated_field(rule, sample_rec)
+                    if precalc_key is not None:
+                        # Precalculated metric available: map directly across all symbols without disk reads or recalculation
+                        for sym in symbols:
+                            sym_rec = records.get(sym, {})
+                            val = sym_rec.get(precalc_key)
+                            enriched_records[sym][field_key] = val
+                            if canonical_key:
+                                enriched_records[sym][canonical_key] = val
+                    else:
+                        rules_to_calculate.append((rule, field_key, canonical_key, tf))
+
+                # Batch lookup daily bars from cache only if there are rules requiring calculation
                 daily_bars_map: dict[str, Sequence[MarketBar]] = {}
-                if effective_cache is not None:
+                if rules_to_calculate and effective_cache is not None:
                     if hasattr(effective_cache, "get_bars_for_symbols"):
 
                         def _on_bars_prog(curr: int, tot: int) -> None:
@@ -397,35 +455,29 @@ class PipelineOrchestrator:
                     elif isinstance(effective_cache, Mapping):
                         daily_bars_map = {s: effective_cache[s] for s in symbols if s in effective_cache}
 
-                # Evaluate dynamic indicator signals for each symbol and dynamic rule
-                total_rules = len(dynamic_rules)
+                # Evaluate dynamic indicator signals for each symbol and dynamic rule that needs calculation
+                total_rules = len(rules_to_calculate)
                 total_symbols = len(symbols)
                 total_calcs = total_rules * total_symbols
                 completed_calcs = 0
 
-                for rule in dynamic_rules:
+                for rule, field_key, canonical_key, tf in rules_to_calculate:
                     calc_module = self._find_calc_module_for_condition(rule.condition_type)
                     if calc_module is None:
                         raise ValueError(
                             f"No calculation module registered supporting condition_type '{rule.condition_type}'"
                         )
 
-                    tf = (rule.timeframe or (rule.params.get("timeframe") if rule.params else None) or "D").strip().upper()
                     p1 = rule.p1 if rule.p1 is not None else (rule.params.get("p1") if rule.params else None)
                     p2 = rule.p2 if rule.p2 is not None else (rule.params.get("p2") if rule.params else None)
 
                     if p1 is not None and p2 is not None:
-                        default_key = f"{rule.condition_type.upper()}_{tf}_{p1}_{p2}"
                         rule_label = f"{rule.condition_type.upper()} {tf}({p1},{p2})"
                     elif p1 is not None:
-                        default_key = f"{rule.condition_type.upper()}_{tf}_{p1}"
                         rule_label = f"{rule.condition_type.upper()} {tf}({p1})"
                     else:
-                        default_key = f"{rule.condition_type.upper()}_{tf}"
                         rule_label = f"{rule.condition_type.upper()} {tf}"
 
-                    field_key = rule.field or default_key
-                    canonical_key = default_key if (rule.field and rule.field != default_key) else None
                     stage_name = f"calculating_{rule.condition_type}"
 
                     for s_idx, sym in enumerate(symbols):
@@ -489,6 +541,7 @@ class PipelineOrchestrator:
                     progress_callback(93.0, "filtering", "Evaluating filter rules...", len(enriched_records), universe_count)
 
                 eval_result = f_rule.evaluate(records=enriched_records, spec=query.filter_group)
+                source_records = enriched_records
             else:
                 if cancel_check and cancel_check():
                     raise ScreeningCancelledError("Screening cancelled before filtering.")
@@ -496,11 +549,12 @@ class PipelineOrchestrator:
                     progress_callback(50.0, "filtering", "Evaluating filter rules...", universe_count, universe_count)
 
                 eval_result = f_rule.evaluate(records=records, spec=query.filter_group)
+                source_records = records
 
             qualified_records: dict[str, Mapping[str, Any]] = {
-                sym: records[sym]
+                sym: source_records[sym]
                 for sym in eval_result.matching_symbols
-                if sym in records
+                if sym in source_records
             }
             qualified_count = eval_result.matched_count
         else:
@@ -531,8 +585,13 @@ class PipelineOrchestrator:
                 (sym for sym in qualified_records if sym in rank_result.ranks),
                 key=lambda s: rank_result.ranks[s],
             )
+            rank_col_name = (
+                query.ranking_metric
+                if query.ranking_metric.startswith("RANK_")
+                else f"RANK_{query.ranking_metric}"
+            )
             ranked_records: dict[str, Mapping[str, Any]] = {
-                sym: {**qualified_records[sym], f"RANK_{query.ranking_metric}": rank_result.ranks[sym]}
+                sym: {**qualified_records[sym], rank_col_name: rank_result.ranks[sym]}
                 for sym in sorted_symbols
             }
         else:
@@ -549,10 +608,11 @@ class PipelineOrchestrator:
         if query.selection_cutoffs and ranked_records:
             if s_rule is None:
                 raise ValueError("ISelectionRule implementation is required when query specifies selection_cutoffs.")
+            sel_mode = getattr(query, "selection_mode", SelectionMode.ALL)
             sel_result = s_rule.select(
                 ranked_records=ranked_records,
                 cutoffs=query.selection_cutoffs,
-                mode=SelectionMode.ALL,
+                mode=sel_mode,
             )
             selected_records: list[Mapping[str, Any]] = [
                 ranked_records[sym]

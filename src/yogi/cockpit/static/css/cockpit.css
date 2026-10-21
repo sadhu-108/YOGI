@@ -190,9 +190,10 @@ body {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 18px;
+    min-width: 20px;
     height: 18px;
-    border-radius: 50%;
+    padding: 0 4px;
+    border-radius: 4px;
     background-color: var(--border-color);
     color: var(--accent-blue-light);
     font-size: 10px;
@@ -1077,6 +1078,89 @@ body {
     .ema-builder-header {
         flex-direction: column;
         align-items: stretch;
+    }
+}
+
+/* Rate of Change (ROC) Condition Builder Panel */
+.roc-builder-panel {
+    background: transparent;
+    border-top: 1px solid var(--border-color, rgba(255, 255, 255, 0.08));
+    padding-top: 16px;
+    margin-top: 16px;
+}
+
+.roc-builder-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+}
+
+.roc-builder-heading-group {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+
+.roc-builder-title {
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--text-primary, #ffffff);
+    margin: 0;
+    letter-spacing: -0.2px;
+}
+
+.roc-builder-subtitle {
+    font-size: 12px;
+    color: var(--text-secondary, rgba(255, 255, 255, 0.6));
+    margin: 0;
+}
+
+.roc-builder-controls-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    background: var(--bg-card, rgba(255, 255, 255, 0.03));
+    border: 1px solid var(--border-color, rgba(255, 255, 255, 0.08));
+    border-radius: 8px;
+    padding: 12px;
+}
+
+.roc-control-group {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.roc-control-label {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-secondary, rgba(255, 255, 255, 0.6));
+    margin: 0;
+}
+
+.roc-select {
+    width: 100%;
+    background-color: var(--bg-dark, #12141a);
+    color: var(--text-primary, #ffffff);
+    border: 1px solid var(--border-color, rgba(255, 255, 255, 0.15));
+    border-radius: 6px;
+    padding: 6px 10px;
+    font-size: 13px;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.roc-select:focus {
+    outline: none;
+    border-color: var(--accent, #6366f1);
+    box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.2);
+}
+
+@media (max-width: 600px) {
+    .roc-builder-controls-grid {
+        grid-template-columns: 1fr;
     }
 }
 
@@ -3139,3 +3223,369 @@ body.drawer-open .data-table td {
     margin: 0;
 }
 
+/* =============================================================================
+   Modular Ranking & Selection Console (Batch U4)
+   ============================================================================= */
+
+/* Toggle Switch Control */
+/* ==========================================================================
+   YOGI Unified Ranking Console & Subsection Presentation
+   ========================================================================== */
+
+/* Unified Ranking Console Parent Card */
+#sectionRankingConsole {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+}
+
+.ranking-subsection {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 3px 0;
+}
+
+.ranking-subsection-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 6px;
+    padding-bottom: 2px;
+}
+
+.ranking-substep-num {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 20px;
+    height: 18px;
+    padding: 0 4px;
+    border-radius: 4px;
+    background-color: var(--border-light, #21262d);
+    color: var(--text-secondary, #8b949e);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+}
+
+.ranking-subsection-title {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-primary, #e6edf3);
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    margin: 0;
+    flex: 1;
+}
+
+.ranking-subtle-divider {
+    height: 1px;
+    background: var(--border-light, #21262d);
+    margin: 12px 0 10px 0;
+}
+
+/* Subsection Form Controls & Readability */
+.ranking-subsection .control-label,
+.ranking-subsection .form-group label {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-secondary, #8b949e);
+    margin-bottom: 4px;
+    display: block;
+}
+
+/* Rank Filter Switch Control */
+.switch-control {
+    display: inline-flex;
+    align-items: center;
+    position: relative;
+    cursor: pointer;
+    user-select: none;
+    margin-bottom: 0;
+}
+
+.switch-control input[type="checkbox"] {
+    opacity: 0;
+    width: 0;
+    height: 0;
+    position: absolute;
+}
+
+.switch-slider {
+    position: relative;
+    display: inline-block;
+    width: 32px;
+    height: 18px;
+    background-color: var(--bg-dark, #0d1117);
+    border: 1px solid var(--border-color, #30363d);
+    border-radius: 10px;
+    transition: all 0.2s ease;
+    vertical-align: middle;
+}
+
+.switch-slider:before {
+    position: absolute;
+    content: "";
+    height: 12px;
+    width: 12px;
+    left: 2px;
+    bottom: 2px;
+    background-color: var(--text-muted, #6e7681);
+    border-radius: 50%;
+    transition: all 0.2s ease;
+}
+
+.switch-control input:checked + .switch-slider {
+    background-color: rgba(31, 111, 235, 0.2);
+    border-color: var(--accent-blue-light, #58a6ff);
+}
+
+.switch-control input:checked + .switch-slider:before {
+    transform: translateX(14px);
+    background-color: var(--accent-blue-light, #58a6ff);
+}
+
+.switch-title {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-primary, #e6edf3);
+    margin-left: 8px;
+}
+
+.badge-enabled {
+    background-color: rgba(31, 111, 235, 0.15);
+    color: var(--accent-blue-light, #58a6ff);
+    border: 1px solid rgba(88, 166, 255, 0.35);
+    font-size: 10px;
+    padding: 2px 7px;
+    border-radius: 4px;
+    text-transform: uppercase;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+}
+
+.badge-disabled {
+    background-color: var(--bg-dark, #0d1117);
+    color: var(--text-muted, #6e7681);
+    border: 1px solid var(--border-color, #30363d);
+    font-size: 10px;
+    padding: 2px 7px;
+    border-radius: 4px;
+    text-transform: uppercase;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+}
+
+/* ALL / ANY Combination Mode Toggle */
+.mode-toggle-group {
+    display: flex;
+    gap: 6px;
+    width: 100%;
+}
+
+.mode-btn {
+    flex: 1;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 6px 10px;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-secondary, #8b949e);
+    background-color: var(--bg-dark, #0d1117);
+    border: 1px solid var(--border-color, #30363d);
+    border-radius: 4px;
+    cursor: pointer;
+    user-select: none;
+    margin-bottom: 0;
+    transition: all 0.15s ease;
+}
+
+.mode-btn input[type="radio"] {
+    display: none;
+}
+
+.mode-btn:hover {
+    border-color: var(--text-secondary, #8b949e);
+    background-color: var(--hover-bg, #21262d);
+    color: var(--text-primary, #e6edf3);
+}
+
+.mode-btn.active {
+    background-color: rgba(31, 111, 235, 0.15);
+    border-color: var(--accent-blue-light, #58a6ff);
+    color: var(--text-primary, #ffffff);
+    font-weight: 700;
+    box-shadow: 0 0 0 1px rgba(88, 166, 255, 0.25);
+}
+
+/* Direction Toggle Group (Highest first / Lowest first) */
+.direction-toggle-group {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    width: 100%;
+}
+
+.direction-toggle-group .mode-btn {
+    justify-content: flex-start;
+    padding: 7px 10px;
+    font-size: 11px;
+    text-align: left;
+}
+
+/* Rank Period Chips Grid */
+.rank-periods-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 5px;
+    margin-top: 4px;
+}
+
+.period-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 8px;
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--text-secondary, #8b949e);
+    background-color: var(--bg-dark, #0d1117);
+    border: 1px solid var(--border-color, #30363d);
+    border-radius: 4px;
+    cursor: pointer;
+    user-select: none;
+    margin-bottom: 0;
+    transition: all 0.15s ease;
+}
+
+.period-chip:hover {
+    border-color: var(--text-secondary, #8b949e);
+    background-color: var(--hover-bg, #21262d);
+    color: var(--text-primary, #e6edf3);
+}
+
+.period-chip:has(input[type="checkbox"]:checked) {
+    background-color: rgba(31, 111, 235, 0.14);
+    border-color: var(--accent-blue-light, #58a6ff);
+    color: var(--text-primary, #ffffff);
+    font-weight: 600;
+    box-shadow: 0 0 0 1px rgba(88, 166, 255, 0.2);
+}
+
+.period-chip input[type="checkbox"] {
+    accent-color: var(--accent-blue-light, #58a6ff);
+    width: 13px;
+    height: 13px;
+    margin: 0;
+    cursor: pointer;
+}
+
+/* Cutoff & Limit Presets Pills */
+.cutoff-presets-pills,
+.quick-limit-pills {
+    display: flex;
+    gap: 5px;
+    width: 100%;
+    margin-top: 4px;
+}
+
+.cutoff-pill,
+.limit-pill {
+    flex: 1;
+    height: 26px;
+    background-color: var(--bg-dark, #0d1117);
+    border: 1px solid var(--border-color, #30363d);
+    color: var(--text-secondary, #8b949e);
+    font-size: 11px;
+    font-weight: 600;
+    border-radius: 4px;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.15s ease;
+}
+
+.cutoff-pill:hover,
+.limit-pill:hover {
+    border-color: var(--text-secondary, #8b949e);
+    background-color: var(--hover-bg, #21262d);
+    color: var(--text-primary, #e6edf3);
+}
+
+.cutoff-pill.active,
+.limit-pill.active {
+    background-color: rgba(31, 111, 235, 0.18);
+    border-color: var(--accent-blue-light, #58a6ff);
+    color: var(--text-primary, #ffffff);
+    font-weight: 700;
+    box-shadow: 0 0 0 1px rgba(88, 166, 255, 0.25);
+}
+
+/* Return Columns Quick Action Buttons */
+.rank-columns-section .btn-group {
+    display: flex;
+    gap: 4px;
+}
+
+.rank-columns-section .btn-ghost.btn-xs {
+    padding: 3px 8px;
+    font-size: 11px;
+    font-weight: 600;
+    border-radius: 4px;
+    color: var(--text-secondary, #8b949e);
+    background-color: var(--bg-dark, #0d1117);
+    border: 1px solid var(--border-color, #30363d);
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.rank-columns-section .btn-ghost.btn-xs:hover {
+    color: var(--text-primary, #ffffff);
+    border-color: var(--accent-blue-light, #58a6ff);
+    background-color: rgba(31, 111, 235, 0.12);
+}
+
+/* Redundant Preview Displays Hidden */
+#primaryRankIndicator,
+#activeRankFilterSummary {
+    display: none !important;
+}
+
+.active-rule-summary,
+.active-rank-badge {
+    font-size: 10px;
+    color: var(--text-secondary, #8b949e);
+    background-color: var(--bg-dark, #0d1117);
+    padding: 4px 8px;
+    border-radius: 4px;
+    border: 1px dashed var(--border-color, #30363d);
+    font-family: monospace;
+}
+
+.active-rank-badge .badge-dot {
+    display: inline-block;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background-color: var(--accent-blue-light, #58a6ff);
+    margin-right: 4px;
+}
+
+/* Sequential Position Table Column (#) */
+.seq-num-th,
+.seq-num-td {
+    width: 38px;
+    min-width: 38px;
+    max-width: 44px;
+    text-align: center;
+    color: var(--text-muted, #6e7681);
+    font-family: monospace;
+    font-size: 11px;
+}
+
+.seq-num-th {
+    font-weight: 700;
+}

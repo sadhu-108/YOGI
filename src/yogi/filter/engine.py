@@ -19,12 +19,12 @@ from yogi.core.contracts.filter import (
 
 
 def _to_float(v: Any) -> Optional[float]:
-    """Safely convert value to float, excluding booleans and NaN."""
+    """Safely convert value to float, excluding booleans and non-finite values (NaN/Inf)."""
     if v is None or isinstance(v, bool):
         return None
     try:
         f = float(v)
-        if math.isnan(f):
+        if not math.isfinite(f):
             return None
         return f
     except (ValueError, TypeError):
@@ -43,8 +43,14 @@ def _is_blank(v: Any) -> bool:
     return False
 
 
-def _eval_operator(op: Union[FilterOperator, str], val: Any, target_val: Any) -> bool:
-    """Evaluate a single binary or unary operator between val and target_val."""
+def _eval_operator(op: Union[FilterOperator, str], val: Any, target_val: Any) -> Optional[bool]:
+    """Evaluate a single binary or unary operator between val and target_val.
+    
+    Returns:
+        True: if condition is satisfied.
+        False: if condition is evaluated and not satisfied.
+        None: if input is missing/invalid, producing UNKNOWN in three-valued logic.
+    """
     op_str = op.value if isinstance(op, FilterOperator) else str(op)
 
     if op_str == FilterOperator.BLANK.value:
@@ -53,40 +59,44 @@ def _eval_operator(op: Union[FilterOperator, str], val: Any, target_val: Any) ->
     if op_str == FilterOperator.NOT_BLANK.value:
         return not _is_blank(val)
 
+    # For all other comparison operators, missing or NaN values produce UNKNOWN (None)
+    if val is None:
+        return None
+    if isinstance(val, (float, int)) and not isinstance(val, bool) and not math.isfinite(val):
+        return None
+
     if op_str == FilterOperator.CONTAINS.value:
-        if val is None or target_val is None:
-            return False
+        if target_val is None:
+            return None
         return str(target_val).upper() in str(val).upper()
 
     if op_str == FilterOperator.IN.value:
-        if val is None:
-            return False
+        if target_val is None:
+            return None
         candidates = target_val if isinstance(target_val, (list, tuple, set)) else [target_val]
         candidates_str = {str(c).strip().upper() for c in candidates}
         return str(val).strip().upper() in candidates_str
 
     if op_str == FilterOperator.NOT_IN.value:
-        if val is None:
-            return True
+        if target_val is None:
+            return None
         candidates = target_val if isinstance(target_val, (list, tuple, set)) else [target_val]
         candidates_str = {str(c).strip().upper() for c in candidates}
         return str(val).strip().upper() not in candidates_str
 
     if op_str == FilterOperator.BETWEEN.value:
-        if val is None or not isinstance(target_val, (list, tuple)) or len(target_val) < 2:
-            return False
+        if not isinstance(target_val, (list, tuple)) or len(target_val) < 2:
+            return None
         val_f = _to_float(val)
         lo_f = _to_float(target_val[0])
         hi_f = _to_float(target_val[1])
         if val_f is None or lo_f is None or hi_f is None:
-            return False
+            return None
         return lo_f <= val_f <= hi_f
 
     if op_str == FilterOperator.EQ.value:
-        if val is None and target_val is None:
-            return True
-        if val is None or target_val is None:
-            return False
+        if target_val is None:
+            return None
         val_f = _to_float(val)
         tgt_f = _to_float(target_val)
         if val_f is not None and tgt_f is not None:
@@ -96,13 +106,16 @@ def _eval_operator(op: Union[FilterOperator, str], val: Any, target_val: Any) ->
         return val == target_val
 
     if op_str == FilterOperator.NEQ.value:
-        return not _eval_operator(FilterOperator.EQ, val, target_val)
+        eq_res = _eval_operator(FilterOperator.EQ, val, target_val)
+        if eq_res is None:
+            return None
+        return not eq_res
 
     # Numeric inequality operators
     val_f = _to_float(val)
     tgt_f = _to_float(target_val)
     if val_f is None or tgt_f is None:
-        return False
+        return None
 
     if op_str == FilterOperator.GT.value:
         return val_f > tgt_f
@@ -143,9 +156,12 @@ def _tri_not(val: Optional[bool]) -> Optional[bool]:
 
 def get_default_condition_evaluators() -> dict[str, IConditionEvaluator]:
     """Return standard production condition evaluators."""
-    from yogi.filter.evaluators import EmaConditionEvaluator
+    from yogi.filter.evaluators import EmaConditionEvaluator, RocConditionEvaluator
 
-    return {"ema": EmaConditionEvaluator()}
+    return {
+        "ema": EmaConditionEvaluator(),
+        "roc": RocConditionEvaluator(),
+    }
 
 
 def create_default_filter_engine(
@@ -261,6 +277,8 @@ class FilterEngine(IFilterRule):
             target_val = rule.value
 
         res = _eval_operator(rule.op, val, target_val)
+        if res is None:
+            return None
         return not res if rule.is_negated else res
 
     def _rule_description(self, rule: FilterRuleSpec) -> str:

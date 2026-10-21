@@ -10,11 +10,12 @@ Adheres strictly to the verified YOGI band envelope mathematics:
 
 from collections import OrderedDict
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import date, datetime, time as dt_time, timedelta, timezone
+import inspect
 import logging
 import threading
 import time
-from typing import Optional, Sequence
+from typing import Optional, Sequence, Union
 import numpy as np
 import pandas as pd
 
@@ -68,6 +69,7 @@ from yogi.core.contracts.market_data import MarketBar
 from yogi.core.contracts.provider import IDataProvider
 from yogi.core.contracts.storage import IBarsCache
 from yogi.core.contracts.timeframe import ITimeframeEngine
+from yogi.storage.cache import get_latest_completed_trading_day, merge_market_bars
 from yogi.timeframe.engine import TimeframeEngine
 
 logger = logging.getLogger(__name__)
@@ -78,6 +80,7 @@ class _ChartCacheEntry:
     """Bounded cache entry storing raw historical bars and monotonic ingestion timestamp."""
     bars: Sequence[MarketBar]
     created_at: float
+    checked_provider: bool = False
 
 
 class ChartDataService:
@@ -127,8 +130,8 @@ class ChartDataService:
 
         return tuple(sliced)
 
-    def _get_cached(self, key: tuple[str, str, int]) -> Optional[Sequence[MarketBar]]:
-        """Retrieve cached daily bars if present, valid, and not expired."""
+    def _get_cached_entry(self, key: tuple[str, str, int]) -> Optional[_ChartCacheEntry]:
+        """Retrieve cached entry if present, valid, and not expired."""
         with self._cache_lock:
             # Invalidate cache if provider switched on this service instance
             current_provider = getattr(self.provider, "name", "")
@@ -149,9 +152,19 @@ class ChartDataService:
 
             # Cache hit: record access for LRU eviction order
             self._cache.move_to_end(key)
-            return entry.bars
+            return entry
 
-    def _put_cached(self, key: tuple[str, str, int], bars: Sequence[MarketBar]) -> None:
+    def _get_cached(self, key: tuple[str, str, int]) -> Optional[Sequence[MarketBar]]:
+        """Retrieve cached daily bars if present, valid, and not expired."""
+        entry = self._get_cached_entry(key)
+        return entry.bars if entry is not None else None
+
+    def _put_cached(
+        self,
+        key: tuple[str, str, int],
+        bars: Sequence[MarketBar],
+        checked_provider: bool = False,
+    ) -> None:
         """Store daily bars in the bounded cache, evicting the oldest entry if capacity exceeded."""
         if self.max_entries <= 0 or not bars:
             return
@@ -163,13 +176,14 @@ class ChartDataService:
                 self._provider_name = current_provider
 
             now = time.monotonic()
+            entry = _ChartCacheEntry(bars=tuple(bars), created_at=now, checked_provider=checked_provider)
             if key in self._cache:
                 self._cache.move_to_end(key)
-                self._cache[key] = _ChartCacheEntry(bars=tuple(bars), created_at=now)
+                self._cache[key] = entry
             else:
                 if len(self._cache) >= self.max_entries:
                     self._cache.popitem(last=False)
-                self._cache[key] = _ChartCacheEntry(bars=tuple(bars), created_at=now)
+                self._cache[key] = entry
 
     def clear_cache(self) -> None:
         """Clear all entries from the chart data cache."""
@@ -190,6 +204,89 @@ class ChartDataService:
         with self._cache_lock:
             return len(self._cache)
 
+    @staticmethod
+    def _get_latest_bar_date(bars: Sequence[MarketBar]) -> Optional[date]:
+        """Extract the latest chronological date from a sequence of MarketBars."""
+        latest_d: Optional[date] = None
+        for b in bars:
+            ts = getattr(b, "timestamp", None)
+            if ts is not None:
+                d = ts.date() if hasattr(ts, "date") else None
+                if d is not None and (latest_d is None or d > latest_d):
+                    latest_d = d
+        return latest_d
+
+    def _provider_supports_date_range(self) -> bool:
+        """Check if active market-data provider supports start_date parameter."""
+        try:
+            sig = inspect.signature(self.provider.daily_history)
+            return "start_date" in sig.parameters or any(
+                p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()
+            )
+        except (ValueError, TypeError):
+            return False
+
+    def _get_expected_fresh_date(self, target_date: Optional[Union[date, datetime, str]] = None) -> date:
+        """Deterministically compute the latest expected completed trading day."""
+        ist_tz = timezone(timedelta(hours=5, minutes=30))
+        now_ist = datetime.now(ist_tz)
+        today_ist = now_ist.date()
+
+        if target_date is not None:
+            t_date: date
+            t_time: Optional[dt_time] = None
+            if isinstance(target_date, datetime):
+                dt_obj = (
+                    target_date.astimezone(ist_tz)
+                    if target_date.tzinfo is not None
+                    else target_date
+                )
+                t_date = dt_obj.date()
+                if dt_obj.time() != dt_time(0, 0):
+                    t_time = dt_obj.time()
+            elif isinstance(target_date, date):
+                t_date = target_date
+            elif isinstance(target_date, str):
+                s = target_date.strip()
+                try:
+                    t_date = date.fromisoformat(s)
+                except ValueError:
+                    try:
+                        dt_parsed = datetime.fromisoformat(s)
+                        dt_obj = (
+                            dt_parsed.astimezone(ist_tz)
+                            if dt_parsed.tzinfo is not None
+                            else dt_parsed
+                        )
+                        t_date = dt_obj.date()
+                        if dt_obj.time() != dt_time(0, 0):
+                            t_time = dt_obj.time()
+                    except ValueError:
+                        t_date = today_ist
+            else:
+                t_date = today_ist
+
+            if t_date < today_ist:
+                session_completed = True
+            elif t_date > today_ist:
+                session_completed = False
+            else:
+                cutoff = dt_time(15, 30)
+                session_completed = (t_time >= cutoff) if t_time is not None else (now_ist.time() >= cutoff)
+
+            return get_latest_completed_trading_day(
+                target_date=t_date,
+                holidays=None,
+                session_completed=session_completed,
+            )
+        else:
+            session_completed = (now_ist.time() >= dt_time(15, 30))
+            return get_latest_completed_trading_day(
+                target_date=today_ist,
+                holidays=None,
+                session_completed=session_completed,
+            )
+
     def get_candles(
         self,
         symbol: str,
@@ -197,6 +294,7 @@ class ChartDataService:
         band_timeframe: Optional[str] = None,
         exchange: str = "NSE",
         years: int = 2,
+        target_date: Optional[Union[date, datetime, str]] = None,
     ) -> CandleSeriesOut:
         """Fetch historical bars, synthesize requested timeframe, and compute band envelope curves."""
         sym = symbol.strip().upper()
@@ -220,12 +318,31 @@ class ChartDataService:
 
         # 1. Fetch raw daily bars from presentation cache, persistent cache, or provider
         cache_key = (sym, ex, years)
-        daily_bars = self._get_cached(cache_key)
+        is_demo = getattr(self.provider, "name", "") == "demo"
+        expected_fresh = self._get_expected_fresh_date(target_date) if not is_demo else None
+
+        daily_bars: Optional[Sequence[MarketBar]] = None
+        cached_entry = self._get_cached_entry(cache_key)
+
+        # Check if presentation cache is already current or was checked against provider within TTL
+        supports_range = self._provider_supports_date_range()
+        if cached_entry is not None:
+            if is_demo or not supports_range:
+                daily_bars = cached_entry.bars
+            else:
+                latest_pres_d = self._get_latest_bar_date(cached_entry.bars)
+                if (
+                    (latest_pres_d is not None and expected_fresh is not None and latest_pres_d >= expected_fresh)
+                    or cached_entry.checked_provider
+                ):
+                    daily_bars = cached_entry.bars
+
         if daily_bars is None:
             # 1a. Attempt to load canonical bars from persistent MarketBarsCache
+            cached_raw: Optional[Sequence[MarketBar]] = None
+            pv_name = getattr(self.provider, "name", "yfinance")
             if self.bars_cache is not None:
                 try:
-                    pv_name = getattr(self.provider, "name", "yfinance")
                     found, _ = self.bars_cache.get_bars_for_symbols(
                         symbols=[sym],
                         exchange=ex,
@@ -233,8 +350,6 @@ class ChartDataService:
                         min_bars=3,
                     )
                     cached_raw = found.get(sym)
-                    if cached_raw:
-                        daily_bars = self._slice_bars_for_years(cached_raw, years=years)
                 except Exception as cache_err:
                     logger.debug(
                         "ChartDataService: persistent bar cache lookup failed for '%s': %s",
@@ -242,12 +357,101 @@ class ChartDataService:
                         cache_err,
                     )
 
-            # 1b. Fall back to configured provider if persistent cache had no usable data
-            if not daily_bars:
-                daily_bars = self.provider.daily_history(symbol=sym, exchange=ex, years=years)
+            # If persistent cache is already current (or demo mode, or provider does not support date range), reuse without provider call
+            if cached_raw:
+                latest_cached_d = self._get_latest_bar_date(cached_raw)
+                supports_range = self._provider_supports_date_range()
+                if (
+                    is_demo
+                    or (latest_cached_d is not None and expected_fresh is not None and latest_cached_d >= expected_fresh)
+                    or (not supports_range and len(cached_raw) >= 3)
+                ):
+                    daily_bars = self._slice_bars_for_years(cached_raw, years=years)
+                    self._put_cached(cache_key, daily_bars, checked_provider=False)
 
-            if daily_bars:
-                self._put_cached(cache_key, daily_bars)
+            # 1b. If stale or missing, query provider for incremental updates or backfill
+            if daily_bars is None:
+                supports_range = self._provider_supports_date_range()
+                if cached_raw and len(cached_raw) >= 3 and supports_range and not is_demo:
+                    # Incremental update: fetch from latest_bar_date - 5 days overlap
+                    latest_d = self._get_latest_bar_date(cached_raw)
+                    overlap_days = 5
+                    start_d = latest_d - timedelta(days=overlap_days) if latest_d else None
+                    try:
+                        inc_bars = self.provider.daily_history(
+                            symbol=sym,
+                            exchange=ex,
+                            start_date=start_d,
+                        )
+                        if inc_bars:
+                            merged = merge_market_bars(cached_raw, inc_bars)
+                        else:
+                            merged = tuple(cached_raw)
+
+                        if self.bars_cache is not None and inc_bars:
+                            try:
+                                self.bars_cache.save_bars(
+                                    {sym: merged},
+                                    exchange=ex,
+                                    provider=pv_name,
+                                    sync_monolith=False,
+                                )
+                            except TypeError:
+                                self.bars_cache.save_bars(
+                                    {sym: merged},
+                                    exchange=ex,
+                                    provider=pv_name,
+                                )
+                        daily_bars = self._slice_bars_for_years(merged, years=years)
+                        self._put_cached(cache_key, daily_bars, checked_provider=True)
+                    except Exception as prov_err:
+                        logger.warning(
+                            "ChartDataService: incremental fetch failed for '%s' (%s): %s; falling back to cached data",
+                            sym,
+                            type(prov_err).__name__,
+                            prov_err,
+                        )
+                        daily_bars = self._slice_bars_for_years(cached_raw, years=years)
+                        self._put_cached(cache_key, daily_bars, checked_provider=True)
+                else:
+                    # Full download fallback (no history, insufficient bars, or no range support)
+                    try:
+                        new_bars = self.provider.daily_history(symbol=sym, exchange=ex, years=years)
+                        if new_bars:
+                            merged = merge_market_bars(cached_raw, new_bars) if cached_raw else tuple(new_bars)
+                            if self.bars_cache is not None:
+                                try:
+                                    self.bars_cache.save_bars(
+                                        {sym: merged},
+                                        exchange=ex,
+                                        provider=pv_name,
+                                        sync_monolith=False,
+                                    )
+                                except TypeError:
+                                    self.bars_cache.save_bars(
+                                        {sym: merged},
+                                        exchange=ex,
+                                        provider=pv_name,
+                                    )
+                            daily_bars = self._slice_bars_for_years(merged, years=years)
+                            self._put_cached(cache_key, daily_bars, checked_provider=True)
+                        elif cached_raw:
+                            daily_bars = self._slice_bars_for_years(cached_raw, years=years)
+                            self._put_cached(cache_key, daily_bars, checked_provider=True)
+                    except Exception as prov_err:
+                        logger.warning(
+                            "ChartDataService: full history fetch failed for '%s' (%s): %s",
+                            sym,
+                            type(prov_err).__name__,
+                            prov_err,
+                        )
+                        if cached_raw:
+                            daily_bars = self._slice_bars_for_years(cached_raw, years=years)
+                            self._put_cached(cache_key, daily_bars, checked_provider=True)
+                        elif cached_entry:
+                            daily_bars = cached_entry.bars
+                        else:
+                            raise
 
         if not daily_bars:
             return CandleSeriesOut(

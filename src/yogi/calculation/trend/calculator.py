@@ -1,7 +1,9 @@
 """Trend Calculation Module — Multi-timeframe trend analysis, ROCs, EMAs, CAGRs, and DMI/ADX."""
 
 from dataclasses import dataclass
-from typing import Any, Mapping, Optional, Sequence
+from datetime import datetime
+import math
+from typing import Any, Mapping, Optional, Sequence, Union
 import numpy as np
 import pandas as pd
 
@@ -226,6 +228,309 @@ def calculate_dynamic_ema_signal(
         "ema_fast": f_cur,
         "ema_slow": s_cur,
         "spread_pct": spread_pct,
+    }
+
+
+VALID_ROC_TIMEFRAMES: dict[str, str] = {
+    "current_month": "current_month",
+    "last_month": "last_month",
+    "last_to_last_month": "last_to_last_month",
+    "current_quarter": "current_quarter",
+    "last_quarter": "last_quarter",
+    "current_half_year": "current_half_year",
+    "ytd": "ytd",
+    "current_year": "ytd",
+    "last_year": "last_year",
+    "preceding_last_4_years": "preceding_last_4_years",
+    "last_4_years": "preceding_last_4_years",
+    "4y": "preceding_last_4_years",
+    "preceding_last_5_years": "preceding_last_5_years",
+    "last_5_years": "preceding_last_5_years",
+    "5y": "preceding_last_5_years",
+    "avg_preceding_last_5_years": "avg_preceding_last_5_years",
+    "avg_last_5_years": "avg_preceding_last_5_years",
+    "avg5y": "avg_preceding_last_5_years",
+    "3m": "current_quarter",
+    "last_3_years": "last_3_years",
+    "3y": "last_3_years",
+}
+
+
+def roc_trailing_years(close: pd.Series, n: int) -> Optional[float]:
+    """Calculate ordinary Rate of Change (ROC) over trailing n calendar years."""
+    if close is None or not isinstance(close, pd.Series):
+        return None
+    c = close.replace([np.inf, -np.inf], np.nan).dropna()
+    if len(c) < 2 or not isinstance(c.index, pd.DatetimeIndex):
+        return None
+    try:
+        latest = c.index[-1]
+        target = latest - pd.DateOffset(years=int(n))
+        past = c[c.index <= target]
+        if len(past) == 0:
+            return None
+        start = float(past.iloc[-1])
+        end = float(c.iloc[-1])
+        if start <= 0 or not (np.isfinite(start) and np.isfinite(end)):
+            return None
+        val = ((end - start) / start) * 100.0
+        return round(float(val), 2) if np.isfinite(val) else None
+    except Exception:
+        return None
+
+
+def calculate_dynamic_roc(
+    bars: Union[Sequence[Any], pd.Series],
+    period: str,
+) -> dict[str, Any]:
+    """Calculate ordinary Rate of Change (ROC) percentage for a specified timeframe option.
+
+    Formula:
+        ROC(%) = ((P_end - P_start) / P_start) * 100.0
+
+    Pricing convention:
+        Uses daily closing prices, not opening prices.
+        - Ongoing periods (current_month, current_quarter, current_half_year, ytd):
+          P_start is the closing price of the first trading day of that period.
+          P_end is the latest available daily closing price.
+        - Completed periods (last_month, last_to_last_month, last_quarter, last_year):
+          P_start is the closing price of the first trading day of that period.
+          P_end is the closing price of the last trading day of that same period.
+        - Preceding last 4 years (preceding_last_4_years):
+          Single ordinary ROC from the first trading day close of (latest_year - 4)
+          to the last trading day close of (latest_year - 1). Requires trading history
+          in each completed year.
+        - Average of preceding last 5 years (avg_preceding_last_5_years):
+          Arithmetic mean of individual annual ROCs across the 5 completed calendar years
+          (latest_year - 5 to latest_year - 1). If any year's ROC is unavailable, returns None.
+
+    Returns:
+        dict with keys:
+            - roc: float or None
+            - period: canonical period string
+            - p_start: float or None
+            - p_end: float or None
+    """
+    canon_period = VALID_ROC_TIMEFRAMES.get(str(period).strip().lower())
+    if not canon_period:
+        return {"roc": None, "period": period, "p_start": None, "p_end": None}
+
+    # Normalize bars into chronological list of (timestamp, close)
+    bar_tuples: list[tuple[datetime, float]] = []
+    if isinstance(bars, pd.Series):
+        for idx, val in bars.dropna().items():
+            ts = pd.to_datetime(idx).to_pydatetime()
+            try:
+                c_val = float(val)
+                if math.isfinite(c_val):
+                    bar_tuples.append((ts, c_val))
+            except (ValueError, TypeError):
+                continue
+    else:
+        for b in bars:
+            ts = getattr(b, "timestamp", None)
+            c = getattr(b, "close", None)
+            if ts is not None and c is not None:
+                if not isinstance(ts, datetime):
+                    ts = pd.to_datetime(ts).to_pydatetime()
+                try:
+                    c_val = float(c)
+                    if math.isfinite(c_val):
+                        bar_tuples.append((ts, c_val))
+                except (ValueError, TypeError):
+                    continue
+
+    if not bar_tuples:
+        return {"roc": None, "period": canon_period, "p_start": None, "p_end": None}
+
+    bar_tuples.sort(key=lambda x: x[0])
+    latest_ts, latest_close = bar_tuples[-1]
+    ly = latest_ts.year
+    lm = latest_ts.month
+
+    def _calc_ordinary_roc(p_s: Optional[float], p_e: Optional[float]) -> Optional[float]:
+        if p_s is None or p_e is None:
+            return None
+        if p_s <= 0.0 or not math.isfinite(p_s) or not math.isfinite(p_e):
+            return None
+        r = ((p_e - p_s) / p_s) * 100.0
+        return round(r, 4) if math.isfinite(r) else None
+
+    p_start: Optional[float] = None
+    p_end: Optional[float] = None
+    roc_val: Optional[float] = None
+
+    if canon_period == "current_month":
+        # Ongoing: first trading day close of current month -> latest close
+        m_bars = [b for b in bar_tuples if b[0].year == ly and b[0].month == lm]
+        if m_bars:
+            p_start = m_bars[0][1]
+            p_end = latest_close
+            roc_val = _calc_ordinary_roc(p_start, p_end)
+
+    elif canon_period == "last_month":
+        # Completed: previous calendar month
+        target_y = ly - 1 if lm == 1 else ly
+        target_m = 12 if lm == 1 else lm - 1
+        m_bars = [b for b in bar_tuples if b[0].year == target_y and b[0].month == target_m]
+        if m_bars:
+            p_start = m_bars[0][1]
+            p_end = m_bars[-1][1]
+            roc_val = _calc_ordinary_roc(p_start, p_end)
+
+    elif canon_period == "last_to_last_month":
+        # Completed: 2 calendar months ago
+        if lm == 1:
+            target_y = ly - 1
+            target_m = 11
+        elif lm == 2:
+            target_y = ly - 1
+            target_m = 12
+        else:
+            target_y = ly
+            target_m = lm - 2
+        m_bars = [b for b in bar_tuples if b[0].year == target_y and b[0].month == target_m]
+        if m_bars:
+            p_start = m_bars[0][1]
+            p_end = m_bars[-1][1]
+            roc_val = _calc_ordinary_roc(p_start, p_end)
+
+    elif canon_period == "current_quarter":
+        # Ongoing: first trading day close of current quarter -> latest close
+        cur_q = (lm - 1) // 3 + 1
+        q_bars = [b for b in bar_tuples if b[0].year == ly and (b[0].month - 1) // 3 + 1 == cur_q]
+        if q_bars:
+            p_start = q_bars[0][1]
+            p_end = latest_close
+            roc_val = _calc_ordinary_roc(p_start, p_end)
+
+    elif canon_period == "last_quarter":
+        # Completed: previous calendar quarter
+        cur_q = (lm - 1) // 3 + 1
+        target_y = ly - 1 if cur_q == 1 else ly
+        target_q = 4 if cur_q == 1 else cur_q - 1
+        q_bars = [b for b in bar_tuples if b[0].year == target_y and (b[0].month - 1) // 3 + 1 == target_q]
+        if q_bars:
+            p_start = q_bars[0][1]
+            p_end = q_bars[-1][1]
+            roc_val = _calc_ordinary_roc(p_start, p_end)
+
+    elif canon_period == "current_half_year":
+        # Ongoing: first trading day close of current half -> latest close
+        cur_h = 1 if lm <= 6 else 2
+        h_bars = [b for b in bar_tuples if b[0].year == ly and (1 if b[0].month <= 6 else 2) == cur_h]
+        if h_bars:
+            p_start = h_bars[0][1]
+            p_end = latest_close
+            roc_val = _calc_ordinary_roc(p_start, p_end)
+
+    elif canon_period == "ytd":
+        # Ongoing: first trading day close of current calendar year -> latest close
+        y_bars = [b for b in bar_tuples if b[0].year == ly]
+        if y_bars:
+            p_start = y_bars[0][1]
+            p_end = latest_close
+            roc_val = _calc_ordinary_roc(p_start, p_end)
+
+    elif canon_period == "last_year":
+        # Completed: previous calendar year (ly - 1)
+        target_y = ly - 1
+        y_bars = [b for b in bar_tuples if b[0].year == target_y]
+        if y_bars:
+            p_start = y_bars[0][1]
+            p_end = y_bars[-1][1]
+            roc_val = _calc_ordinary_roc(p_start, p_end)
+
+    elif canon_period == "preceding_last_4_years":
+        # Completed: 4 calendar years preceding latest year: [ly - 4, ly - 1]
+        start_y = ly - 4
+        end_y = ly - 1
+        has_all_years = True
+        for yr in range(start_y, end_y + 1):
+            if not any(b[0].year == yr for b in bar_tuples):
+                has_all_years = False
+                break
+        if has_all_years:
+            start_bars = [b for b in bar_tuples if b[0].year == start_y]
+            end_bars = [b for b in bar_tuples if b[0].year == end_y]
+            if start_bars and end_bars:
+                p_start = start_bars[0][1]
+                p_end = end_bars[-1][1]
+                roc_val = _calc_ordinary_roc(p_start, p_end)
+
+    elif canon_period == "preceding_last_5_years":
+        # Completed: 5 calendar years preceding latest year: [ly - 5, ly - 1]
+        # Preserves the distinction of 5Y total-period return over 5 completed years
+        start_y = ly - 5
+        end_y = ly - 1
+        has_all_years = True
+        for yr in range(start_y, end_y + 1):
+            if not any(b[0].year == yr for b in bar_tuples):
+                has_all_years = False
+                break
+        if has_all_years:
+            start_bars = [b for b in bar_tuples if b[0].year == start_y]
+            end_bars = [b for b in bar_tuples if b[0].year == end_y]
+            if start_bars and end_bars:
+                p_start = start_bars[0][1]
+                p_end = end_bars[-1][1]
+                roc_val = _calc_ordinary_roc(p_start, p_end)
+
+    elif canon_period == "last_3_years":
+        # 3 years: trailing or completed 3 calendar years [ly - 3, ly - 1]
+        start_y = ly - 3
+        end_y = ly - 1
+        has_all_years = True
+        for yr in range(start_y, end_y + 1):
+            if not any(b[0].year == yr for b in bar_tuples):
+                has_all_years = False
+                break
+        if has_all_years:
+            start_bars = [b for b in bar_tuples if b[0].year == start_y]
+            end_bars = [b for b in bar_tuples if b[0].year == end_y]
+            if start_bars and end_bars:
+                p_start = start_bars[0][1]
+                p_end = end_bars[-1][1]
+                roc_val = _calc_ordinary_roc(p_start, p_end)
+        if roc_val is None:
+            # Fallback to trailing 3 years from latest bar
+            try:
+                target_ts = latest_ts - timedelta(days=3 * 365)
+                past_bars = [b for b in bar_tuples if b[0] <= target_ts]
+                if past_bars:
+                    p_start = past_bars[-1][1]
+                    p_end = latest_close
+                    roc_val = _calc_ordinary_roc(p_start, p_end)
+            except Exception:
+                pass
+
+    elif canon_period == "avg_preceding_last_5_years":
+        # Completed: 5 calendar years preceding latest year: [ly - 5, ly - 1]
+        target_years = [ly - 5, ly - 4, ly - 3, ly - 2, ly - 1]
+        annual_rocs: list[float] = []
+        for yr in target_years:
+            yr_bars = [b for b in bar_tuples if b[0].year == yr]
+            if not yr_bars:
+                annual_rocs = []
+                break
+            y_start = yr_bars[0][1]
+            y_end = yr_bars[-1][1]
+            y_roc = _calc_ordinary_roc(y_start, y_end)
+            if y_roc is None:
+                annual_rocs = []
+                break
+            annual_rocs.append(y_roc)
+
+        if len(annual_rocs) == 5:
+            roc_val = round(sum(annual_rocs) / 5.0, 4)
+            p_start = None
+            p_end = None
+
+    return {
+        "roc": roc_val,
+        "period": canon_period,
+        "p_start": p_start,
+        "p_end": p_end,
     }
 
 
@@ -732,6 +1037,45 @@ class TrendCalculator(ICalcModule):
         metrics.update(cagrs(close))
         metrics["ATH_DIFF"] = ath_diff(close)
 
+        # 12 Canonical Ranking Periods (returns populated on all records):
+        # 1. D: DROC
+        # 2. W: WROC
+        # 3. M: M_CUR (fallback MROC)
+        # 4. Q: Q_CUR (fallback QROC)
+        # 5. H: H_CUR (fallback HROC)
+        # 6. Y: YROC
+        # 7. YTD: Year to date return
+        ytd_val = metrics.get(f"Y{ly}")
+        if ytd_val is None:
+            ytd_calc = calculate_dynamic_roc(daily_bars, "ytd")
+            ytd_val = ytd_calc.get("roc")
+        metrics["YTD"] = ytd_val
+        metrics["ROC_YTD"] = ytd_val
+
+        # 8. 3M: Last 3 months return (~63 trading days, matching QROC)
+        metrics["3M"] = metrics.get("QROC")
+        metrics["ROC_3M"] = metrics.get("QROC")
+
+        # 9. 3Y: Last 3 years total return
+        r_3y = roc_trailing_years(close, 3)
+        metrics["3Y"] = r_3y
+        metrics["ROC_3Y"] = r_3y
+
+        # 10. 4Y: Preceding 4 completed calendar years
+        res_4y = calculate_dynamic_roc(daily_bars, "preceding_last_4_years")
+        metrics["4Y"] = res_4y.get("roc")
+        metrics["ROC_4Y"] = metrics["4Y"]
+
+        # 11. 5Y: Preceding 5 completed calendar years (total-period return)
+        res_5y = calculate_dynamic_roc(daily_bars, "preceding_last_5_years")
+        metrics["5Y"] = res_5y.get("roc") if res_5y.get("roc") is not None else roc_trailing_years(close, 5)
+        metrics["ROC_5Y"] = metrics["5Y"]
+
+        # 12. AVG5Y: Average of 5 completed calendar years
+        res_avg5y = calculate_dynamic_roc(daily_bars, "avg_preceding_last_5_years")
+        metrics["AVG5Y"] = res_avg5y.get("roc")
+        metrics["ROC_AVG5Y"] = metrics["AVG5Y"]
+
         # Per-timeframe EMA 3/5
         tf_ema = per_tf_ema(close, bars_cache)
         for tf, st in tf_ema.items():
@@ -790,7 +1134,7 @@ class TrendCalculator(ICalcModule):
 
     def supports_condition(self, condition_type: str) -> bool:
         """Return True if this calculation module supports the specified dynamic condition type."""
-        return condition_type == "ema"
+        return condition_type in ("ema", "roc")
 
     def calculate_dynamic(
         self,
@@ -799,41 +1143,60 @@ class TrendCalculator(ICalcModule):
         context: CalculationContext,
     ) -> Any:
         """Execute on-demand dynamic indicator calculation for a symbol and rule."""
-        if getattr(rule, "condition_type", None) != "ema":
-            return None
+        c_type = getattr(rule, "condition_type", None)
+        if c_type == "ema":
+            tf = getattr(rule, "timeframe", None)
+            p1 = getattr(rule, "p1", None)
+            p2 = getattr(rule, "p2", None)
+            params = getattr(rule, "params", {}) or {}
+            if tf is None:
+                tf = params.get("timeframe", "D")
+            if p1 is None:
+                p1 = params.get("p1")
+            if p2 is None:
+                p2 = params.get("p2")
 
-        tf = getattr(rule, "timeframe", None)
-        p1 = getattr(rule, "p1", None)
-        p2 = getattr(rule, "p2", None)
-        params = getattr(rule, "params", {}) or {}
-        if tf is None:
-            tf = params.get("timeframe", "D")
-        if p1 is None:
-            p1 = params.get("p1")
-        if p2 is None:
-            p2 = params.get("p2")
+            if p1 is None or p2 is None:
+                return None
 
-        if p1 is None or p2 is None:
-            return None
+            tf_str = (tf or "D").strip().upper()
+            bars = context.market_context.get_bars(tf_str)
+            if not bars:
+                return {
+                    "state": "na",
+                    "is_up": False,
+                    "is_down": False,
+                    "is_upcut": False,
+                    "is_downcut": False,
+                    "cur_diff": None,
+                    "prev_diff": None,
+                    "p1_val": None,
+                    "p2_val": None,
+                    "ema_fast": None,
+                    "ema_slow": None,
+                    "spread_pct": None,
+                }
+            return calculate_dynamic_ema_signal(bars, p1=int(p1), p2=int(p2), timeframe=tf_str)
 
-        tf_str = (tf or "D").strip().upper()
-        bars = context.market_context.get_bars(tf_str)
-        if not bars:
-            return {
-                "state": "na",
-                "is_up": False,
-                "is_down": False,
-                "is_upcut": False,
-                "is_downcut": False,
-                "cur_diff": None,
-                "prev_diff": None,
-                "p1_val": None,
-                "p2_val": None,
-                "ema_fast": None,
-                "ema_slow": None,
-                "spread_pct": None,
-            }
-        return calculate_dynamic_ema_signal(bars, p1=int(p1), p2=int(p2), timeframe=tf_str)
+        elif c_type == "roc":
+            period = getattr(rule, "period", None)
+            params = getattr(rule, "params", {}) or {}
+            if period is None:
+                period = params.get("period")
+            if period is None and getattr(rule, "field", None):
+                f = str(rule.field).strip()
+                if f.upper().startswith("ROC_"):
+                    period = f[4:].lower()
+
+            if not period:
+                return {"roc": None, "period": None, "p_start": None, "p_end": None}
+
+            daily_bars = context.market_context.get_bars("D")
+            if not daily_bars:
+                return {"roc": None, "period": str(period), "p_start": None, "p_end": None}
+            return calculate_dynamic_roc(daily_bars, period=str(period))
+
+        return None
 
 
 

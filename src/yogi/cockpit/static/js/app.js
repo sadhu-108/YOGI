@@ -12,6 +12,24 @@ document.addEventListener('DOMContentLoaded', async () => {
     // -------------------------------------------------------------------------
     const METRICS_CATALOG = [
         {
+            category: "Timeframe Ranks (Ordinal #1 = Best)",
+            metrics: [
+                { key: "RANK_M", label: "Month Rank (RANK_M)", tf: "M", type: "number", unit: "rank" },
+                { key: "RANK_Y", label: "Year Rank (RANK_Y)", tf: "Y", type: "number", unit: "rank" },
+                { key: "RANK_W", label: "Week Rank (RANK_W)", tf: "W", type: "number", unit: "rank" },
+                { key: "RANK_Q", label: "Quarter Rank (RANK_Q)", tf: "Q", type: "number", unit: "rank" },
+                { key: "RANK_H", label: "Half-Year Rank (RANK_H)", tf: "H", type: "number", unit: "rank" },
+                { key: "RANK_D", label: "Day Rank (RANK_D)", tf: "D", type: "number", unit: "rank" },
+                { key: "RANK_YTD", label: "YTD Rank (RANK_YTD)", tf: "YTD", type: "number", unit: "rank" },
+                { key: "RANK_3M", label: "3M Rank (RANK_3M)", tf: "3M", type: "number", unit: "rank" },
+                { key: "RANK_3Y", label: "3Y Rank (RANK_3Y)", tf: "3Y", type: "number", unit: "rank" },
+                { key: "RANK_4Y", label: "4Y Rank (RANK_4Y)", tf: "4Y", type: "number", unit: "rank" },
+                { key: "RANK_5Y", label: "5Y Rank (RANK_5Y)", tf: "5Y", type: "number", unit: "rank" },
+                { key: "RANK_AVG5Y", label: "AVG5Y Rank (RANK_AVG5Y)", tf: "AVG5Y", type: "number", unit: "rank" },
+                { key: "RANK_CHG", label: "Rank Change (Climbers)", tf: "M", type: "number", unit: "pos" },
+            ]
+        },
+        {
             category: "Returns & Rate of Change",
             metrics: [
                 { key: "M_CUR", label: "Current Month Return %", tf: "M", type: "number", unit: "%" },
@@ -21,6 +39,12 @@ document.addEventListener('DOMContentLoaded', async () => {
                 { key: "QROC", label: "Quarterly Return % (QROC)", tf: "Q", type: "number", unit: "%" },
                 { key: "HROC", label: "Half-Yearly Return % (HROC)", tf: "H", type: "number", unit: "%" },
                 { key: "YROC", label: "1-Year Return % (YROC)", tf: "Y", type: "number", unit: "%" },
+                { key: "YTD", label: "Year-to-Date Return % (YTD)", tf: "YTD", type: "number", unit: "%" },
+                { key: "3M", label: "3-Month Return % (3M)", tf: "3M", type: "number", unit: "%" },
+                { key: "3Y", label: "3-Year Return % (3Y)", tf: "3Y", type: "number", unit: "%" },
+                { key: "4Y", label: "Preceding 4-Years Return % (4Y)", tf: "4Y", type: "number", unit: "%" },
+                { key: "5Y", label: "Preceding 5-Years Total Return % (5Y)", tf: "5Y", type: "number", unit: "%" },
+                { key: "AVG5Y", label: "Average of 5 Completed Years % (AVG5Y)", tf: "AVG5Y", type: "number", unit: "%" },
                 { key: "M_P1", label: "Previous Month Return % (M_P1)", tf: "M", type: "number", unit: "%" },
                 { key: "M_P2", label: "Month -2 Return % (M_P2)", tf: "M", type: "number", unit: "%" },
                 { key: "M_P3", label: "Month -3 Return % (M_P3)", tf: "M", type: "number", unit: "%" },
@@ -470,31 +494,92 @@ document.addEventListener('DOMContentLoaded', async () => {
     // -------------------------------------------------------------------------
     // 4. Populate Dropdowns (Ranking Metrics & Presets)
     // -------------------------------------------------------------------------
+    const RANKING_PERIODS = [
+        { key: 'M_CUR', label: 'M — Monthly', period: 'M', rankCol: 'RANK_M' },
+        { key: 'YROC', label: 'Y — Yearly', period: 'Y', rankCol: 'RANK_Y' },
+        { key: 'WROC', label: 'W — Weekly', period: 'W', rankCol: 'RANK_W' },
+        { key: 'Q_CUR', label: 'Q — Quarterly', period: 'Q', rankCol: 'RANK_Q' },
+        { key: 'H_CUR', label: 'H — Half-yearly', period: 'H', rankCol: 'RANK_H' },
+        { key: 'DROC', label: 'D — Daily', period: 'D', rankCol: 'RANK_D' },
+        { key: 'YTD', label: 'YTD — Year to date', period: 'YTD', rankCol: 'RANK_YTD' },
+        { key: '3M', label: '3M — Last 3 months', period: '3M', rankCol: 'RANK_3M' },
+        { key: '3Y', label: '3Y — Last 3 years', period: '3Y', rankCol: 'RANK_3Y' },
+        { key: '4Y', label: '4Y — Preceding 4 years', period: '4Y', rankCol: 'RANK_4Y' },
+        { key: '5Y', label: '5Y — Preceding 5 years', period: '5Y', rankCol: 'RANK_5Y' },
+        { key: 'AVG5Y', label: 'AVG5Y — Average of 5 completed years', period: 'AVG5Y', rankCol: 'RANK_AVG5Y' },
+    ];
+
+    function setPrimaryRankingPeriod(val) {
+        const rankingSelect = document.getElementById('rankingMetric');
+        if (!rankingSelect || !val) return;
+
+        const normMap = {
+            'RANK_M': 'M_CUR', 'M': 'M_CUR', 'M_CUR': 'M_CUR', 'MROC': 'M_CUR',
+            'RANK_Y': 'YROC', 'Y': 'YROC', 'YROC': 'YROC',
+            'RANK_W': 'WROC', 'W': 'WROC', 'WROC': 'WROC',
+            'RANK_Q': 'Q_CUR', 'Q': 'Q_CUR', 'Q_CUR': 'Q_CUR', 'QROC': 'Q_CUR',
+            'RANK_H': 'H_CUR', 'H': 'H_CUR', 'H_CUR': 'H_CUR', 'HROC': 'H_CUR',
+            'RANK_D': 'DROC', 'D': 'DROC', 'DROC': 'DROC',
+            'RANK_YTD': 'YTD', 'YTD': 'YTD', 'ROC_YTD': 'YTD',
+            'RANK_3M': '3M', '3M': '3M', 'ROC_3M': '3M',
+            'RANK_3Y': '3Y', '3Y': '3Y', 'ROC_3Y': '3Y',
+            'RANK_4Y': '4Y', '4Y': '4Y', 'ROC_4Y': '4Y',
+            'RANK_5Y': '5Y', '5Y': '5Y', 'ROC_5Y': '5Y',
+            'RANK_AVG5Y': 'AVG5Y', 'AVG5Y': 'AVG5Y', 'ROC_AVG5Y': 'AVG5Y'
+        };
+        const resolved = normMap[val] || normMap[val.toUpperCase()] || val;
+
+        const optExists = Array.from(rankingSelect.options).some(o => o.value === resolved);
+        if (!optExists && resolved) {
+            const meta = getMetricMeta(resolved);
+            const opt = document.createElement('option');
+            opt.value = resolved;
+            opt.text = meta.label || resolved;
+            rankingSelect.appendChild(opt);
+        }
+        rankingSelect.value = resolved;
+        updatePrimaryRankIndicator();
+    }
+
     function populateRankingSelects() {
         const primarySelect = document.getElementById('rankingMetric');
         const secondarySelect = document.getElementById('secondaryRankingMetric');
         if (!primarySelect) return;
 
-        let optionsHtml = '<option value="">None (Unranked)</option>';
-        METRICS_CATALOG.forEach(cat => {
-            optionsHtml += `<optgroup label="${cat.category}">`;
-            cat.metrics.forEach(m => {
-                optionsHtml += `<option value="${m.key}">${m.label}</option>`;
-            });
-            optionsHtml += `</optgroup>`;
+        // Section 01 Primary Ranking must strictly contain the supported ranking periods
+        let primaryHtml = '';
+        RANKING_PERIODS.forEach(p => {
+            primaryHtml += `<option value="${p.key}">${p.label}</option>`;
+        });
+        primarySelect.innerHTML = primaryHtml;
+        primarySelect.value = 'M_CUR';
+        primarySelect.addEventListener('change', () => {
+            updatePrimaryRankIndicator();
+            onConditionChanged();
         });
 
-        primarySelect.innerHTML = optionsHtml;
-        primarySelect.value = 'M_CUR';
-        primarySelect.addEventListener('change', onConditionChanged);
-
+        // Secondary ranking (tie-breaker) can offer default plus ranking periods and catalog metrics
         if (secondarySelect) {
-            secondarySelect.innerHTML = '<option value="">Default (Symbol Ascending)</option>' + optionsHtml.replace('<option value="">None (Unranked)</option>', '');
+            let secHtml = '<option value="">Default (Symbol Ascending)</option>';
+            secHtml += '<optgroup label="Ranking Periods">';
+            RANKING_PERIODS.forEach(p => {
+                secHtml += `<option value="${p.key}">${p.label}</option>`;
+            });
+            secHtml += '</optgroup>';
+            METRICS_CATALOG.forEach(cat => {
+                secHtml += `<optgroup label="${cat.category}">`;
+                cat.metrics.forEach(m => {
+                    secHtml += `<option value="${m.key}">${m.label}</option>`;
+                });
+                secHtml += `</optgroup>`;
+            });
+            secondarySelect.innerHTML = secHtml;
             secondarySelect.addEventListener('change', () => {
                 table.setSecondarySort(secondarySelect.value);
                 onConditionChanged();
             });
         }
+        updatePrimaryRankIndicator();
     }
 
     async function loadPresetsList() {
@@ -570,11 +655,15 @@ document.addEventListener('DOMContentLoaded', async () => {
             loadedPresetName = detail.name;
             isPresetModified = false;
 
-            // 1. Clear rules container & EMA builder container
+            // 1. Clear rules container, EMA builder container & ROC controls
             const rulesContainer = document.getElementById('filterRulesContainer');
             if (rulesContainer) rulesContainer.innerHTML = '';
             const emaContainer = document.getElementById('emaConditionsContainer');
             if (emaContainer) emaContainer.innerHTML = '';
+            const rocTf = document.getElementById('rocTimeframeSelect');
+            const rocBucket = document.getElementById('rocBucketSelect');
+            if (rocTf) rocTf.value = '';
+            if (rocBucket) rocBucket.value = 'gt_100';
 
             // 2. Set root match & root negation
             const rootMatch = document.getElementById('rootGroupMatch');
@@ -592,6 +681,9 @@ document.addEventListener('DOMContentLoaded', async () => {
                         createNestedGroupCard(rulesContainer, r);
                     } else if (r.condition_type === 'ema') {
                         createEmaConditionCard(emaContainer, r);
+                    } else if (r.condition_type === 'roc') {
+                        if (rocTf) rocTf.value = r.params?.period || r.period || '';
+                        if (rocBucket) rocBucket.value = r.params?.bucket || r.bucket || r.value || 'gt_100';
                     } else {
                         createRuleRow(rulesContainer, r);
                     }
@@ -600,12 +692,18 @@ document.addEventListener('DOMContentLoaded', async () => {
 
             // 4. Set ranking & limits
             if (detail.target_ranking_metric) {
-                const rankingSelect = document.getElementById('rankingMetric');
-                if (rankingSelect) rankingSelect.value = detail.target_ranking_metric;
+                setPrimaryRankingPeriod(detail.target_ranking_metric);
             }
             if (detail.ranking_order) {
                 const rankingOrderSelect = document.getElementById('rankingOrder');
                 if (rankingOrderSelect) rankingOrderSelect.value = detail.ranking_order;
+                const dirRadio = document.querySelector(`input[name="rankingDirection"][value="${detail.ranking_order}"]`);
+                if (dirRadio) {
+                    dirRadio.checked = true;
+                    document.getElementById('labelOrderDesc')?.classList.toggle('active', detail.ranking_order === 'desc');
+                    document.getElementById('labelOrderAsc')?.classList.toggle('active', detail.ranking_order === 'asc');
+                }
+                updatePrimaryRankIndicator();
             }
 
             const limitInput = document.getElementById('screenLimit');
@@ -677,13 +775,21 @@ document.addEventListener('DOMContentLoaded', async () => {
             }
             const emaMatch = document.getElementById('emaGroupMatch');
             if (emaMatch) emaMatch.value = 'all';
+            const rocTf = document.getElementById('rocTimeframeSelect');
+            const rocBucket = document.getElementById('rocBucketSelect');
+            if (rocTf) rocTf.value = '';
+            if (rocBucket) rocBucket.value = 'gt_100';
             const rootMatch = document.getElementById('rootGroupMatch');
             if (rootMatch) rootMatch.value = 'all';
             if (rootGroupNotToggle) rootGroupNotToggle.classList.remove('active');
-            const rankSelect = document.getElementById('rankingMetric');
-            if (rankSelect) rankSelect.value = 'M_CUR';
+            setPrimaryRankingPeriod('M_CUR');
             const rankOrder = document.getElementById('rankingOrder');
             if (rankOrder) rankOrder.value = 'desc';
+            const descRadio = document.getElementById('radioOrderDesc');
+            if (descRadio) descRadio.checked = true;
+            document.getElementById('labelOrderDesc')?.classList.add('active');
+            document.getElementById('labelOrderAsc')?.classList.remove('active');
+            updatePrimaryRankIndicator();
             const secRank = document.getElementById('secondaryRankingMetric');
             if (secRank) secRank.value = '';
             const limitInput = document.getElementById('screenLimit');
@@ -990,7 +1096,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (!badge) return;
         const stdCount = document.querySelectorAll('.rule-card').length;
         const emaCount = document.querySelectorAll('.ema-condition-card').length;
-        const total = stdCount + emaCount;
+        const rocCount = typeof extractRocConditions === 'function' ? extractRocConditions().length : 0;
+        const total = stdCount + emaCount + rocCount;
         badge.textContent = `${total} ${total === 1 ? 'rule' : 'rules'}`;
     }
 
@@ -1466,6 +1573,40 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
     }
 
+    // -------------------------------------------------------------------------
+    // 7B. Rate of Change (ROC) Condition Builder
+    // -------------------------------------------------------------------------
+    function extractRocConditions() {
+        const tfSelect = document.getElementById('rocTimeframeSelect');
+        const bucketSelect = document.getElementById('rocBucketSelect');
+        if (!tfSelect || !bucketSelect) return [];
+
+        const tf = (tfSelect.value || '').trim();
+        if (!tf) return []; // Off / Inactive
+
+        const bucket = (bucketSelect.value || 'gt_100').trim();
+        return [{
+            field: `ROC_${tf.toUpperCase()}`,
+            op: '==',
+            value: bucket,
+            condition_type: 'roc',
+            timeframe: 'D',
+            params: {
+                period: tf,
+                bucket: bucket,
+                timeframe: 'D'
+            }
+        }];
+    }
+
+    document.getElementById('rocTimeframeSelect')?.addEventListener('change', () => {
+        onConditionChanged();
+    });
+
+    document.getElementById('rocBucketSelect')?.addEventListener('change', () => {
+        onConditionChanged();
+    });
+
     // Grouped Band Position Shortcut Handler (Batch U3)
     document.getElementById('applyBandPositionBtn')?.addEventListener('click', () => {
         const select = document.getElementById('quickBandPositionSelect');
@@ -1589,6 +1730,217 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
 
     // -------------------------------------------------------------------------
+    // Modular Ranking & Selection Console (Batch U4)
+    // -------------------------------------------------------------------------
+    const rankFilterToggle = document.getElementById('rankFilterToggle');
+    const rankFilterStatus = document.getElementById('rankFilterStatus');
+    const rankFilterBody = document.getElementById('rankFilterBody');
+    const rankCutoffThreshold = document.getElementById('rankCutoffThreshold');
+    const activeRankFilterSummary = document.getElementById('activeRankFilterSummary');
+    const primaryRankIndicatorText = document.getElementById('primaryRankIndicatorText');
+
+    function updateRankFilterSummary() {
+        if (!activeRankFilterSummary) return;
+        const isEnabled = rankFilterToggle ? rankFilterToggle.checked : true;
+        if (!isEnabled) {
+            activeRankFilterSummary.textContent = "Rank Filter: Disabled (Skipped — all qualified stocks pass)";
+            if (rankFilterStatus) {
+                rankFilterStatus.textContent = "Disabled";
+                rankFilterStatus.className = "badge badge-disabled";
+            }
+            if (rankFilterBody) rankFilterBody.style.opacity = "0.5";
+            return;
+        }
+
+        if (rankFilterStatus) {
+            rankFilterStatus.textContent = "Active";
+            rankFilterStatus.className = "badge badge-enabled";
+        }
+        if (rankFilterBody) rankFilterBody.style.opacity = "1";
+
+        const cutoffN = parseInt(rankCutoffThreshold?.value, 10) || 100;
+        const mode = document.querySelector('input[name="selectionMode"]:checked')?.value || 'ALL';
+        const checkedTfs = Array.from(document.querySelectorAll('.rank-filter-tf:checked')).map(el => {
+            const val = el.value;
+            const labelMap = {
+                RANK_D: "Day", RANK_W: "Week", RANK_M: "Month", RANK_Q: "Quarter", RANK_H: "Half", RANK_Y: "Year",
+                RANK_YTD: "YTD", RANK_3M: "3M", RANK_3Y: "3Y", RANK_4Y: "4Y", RANK_5Y: "5Y", RANK_AVG5Y: "AVG5Y"
+            };
+            return labelMap[val] || val;
+        });
+
+        const customCutoffsCount = document.querySelectorAll('.cutoff-row').length;
+
+        if (checkedTfs.length === 0 && customCutoffsCount === 0) {
+            activeRankFilterSummary.textContent = "Rank Filter: No periods selected (Skipped — all qualified stocks pass)";
+        } else {
+            let summary = `Filter: Rank ≤ ${cutoffN} in ${checkedTfs.join(', ') || 'custom'}`;
+            if (customCutoffsCount > 0) {
+                summary += ` (+${customCutoffsCount} custom)`;
+            }
+            summary += ` [${mode}]`;
+            activeRankFilterSummary.textContent = summary;
+        }
+    }
+
+    function updatePrimaryRankIndicator() {
+        if (!primaryRankIndicatorText) return;
+        const metricSelect = document.getElementById('rankingMetric');
+        const orderSelect = document.getElementById('rankingOrder');
+        const metricKey = metricSelect?.value || '';
+        const orderVal = document.querySelector('input[name="rankingDirection"]:checked')?.value || orderSelect?.value || 'desc';
+        const directionText = orderVal === 'asc' ? 'Lowest First (worst to best)' : 'Highest First (best to worst)';
+
+        if (!metricKey) {
+            primaryRankIndicatorText.textContent = "Primary: None (Unranked)";
+            return;
+        }
+
+        const selectedOpt = metricSelect?.options[metricSelect.selectedIndex]?.text || metricKey;
+        primaryRankIndicatorText.textContent = `Primary: ${selectedOpt} [${directionText}]`;
+    }
+
+    // Toggle Rank Filter
+    rankFilterToggle?.addEventListener('change', () => {
+        updateRankFilterSummary();
+        onConditionChanged();
+    });
+
+    // Cutoff Threshold Input
+    rankCutoffThreshold?.addEventListener('input', (e) => {
+        const val = parseInt(e.target.value, 10) || null;
+        document.querySelectorAll('.cutoff-pill').forEach(pill => {
+            pill.classList.toggle('active', parseInt(pill.dataset.cutoff, 10) === val);
+        });
+        updateRankFilterSummary();
+        onConditionChanged();
+    });
+
+    // Cutoff Presets Pills (Top 10, Top 25, Top 50, Top 100)
+    document.querySelectorAll('.cutoff-pill').forEach(pill => {
+        pill.addEventListener('click', () => {
+            document.querySelectorAll('.cutoff-pill').forEach(p => p.classList.remove('active'));
+            pill.classList.add('active');
+            const val = parseInt(pill.dataset.cutoff, 10);
+            if (rankCutoffThreshold) rankCutoffThreshold.value = val;
+            updateRankFilterSummary();
+            onConditionChanged();
+        });
+    });
+
+    // Combination Mode Radio (ALL / ANY)
+    document.querySelectorAll('input[name="selectionMode"]').forEach(radio => {
+        radio.addEventListener('change', () => {
+            document.getElementById('labelModeAll')?.classList.toggle('active', radio.value === 'ALL' && radio.checked);
+            document.getElementById('labelModeAny')?.classList.toggle('active', radio.value === 'ANY' && radio.checked);
+            updateRankFilterSummary();
+            onConditionChanged();
+        });
+    });
+
+    // Ranking Direction Radios (Highest first / Lowest first)
+    document.querySelectorAll('input[name="rankingDirection"]').forEach(radio => {
+        radio.addEventListener('change', () => {
+            const orderSelect = document.getElementById('rankingOrder');
+            if (orderSelect) {
+                orderSelect.value = radio.value;
+            }
+            document.getElementById('labelOrderDesc')?.classList.toggle('active', radio.value === 'desc' && radio.checked);
+            document.getElementById('labelOrderAsc')?.classList.toggle('active', radio.value === 'asc' && radio.checked);
+            updatePrimaryRankIndicator();
+            onConditionChanged();
+        });
+    });
+
+    // Rank Filter Timeframes
+    document.querySelectorAll('.rank-filter-tf').forEach(cb => {
+        cb.addEventListener('change', () => {
+            updateRankFilterSummary();
+            onConditionChanged();
+        });
+    });
+
+    // Primary Ranking Select and Direction changes
+    document.getElementById('rankingMetric')?.addEventListener('change', updatePrimaryRankIndicator);
+    document.getElementById('rankingOrder')?.addEventListener('change', () => {
+        const val = document.getElementById('rankingOrder').value;
+        const targetRadio = document.querySelector(`input[name="rankingDirection"][value="${val}"]`);
+        if (targetRadio) {
+            targetRadio.checked = true;
+            document.getElementById('labelOrderDesc')?.classList.toggle('active', val === 'desc');
+            document.getElementById('labelOrderAsc')?.classList.toggle('active', val === 'asc');
+        }
+        updatePrimaryRankIndicator();
+    });
+
+    // Ranking Periods to Return (Section 03)
+    function syncRankColsToCustomColumns() {
+        const checkedRankCols = Array.from(document.querySelectorAll('.rank-col-tf:checked')).map(el => el.value);
+        const customInput = document.getElementById('customColumns');
+        if (!customInput) return;
+
+        let currentCols = customInput.value.split(',').map(c => c.trim()).filter(Boolean);
+        const allKnownRankCols = [
+            'RANK_D', 'RANK_W', 'RANK_M', 'RANK_Q', 'RANK_H', 'RANK_Y',
+            'RANK_YTD', 'RANK_3M', 'RANK_3Y', 'RANK_4Y', 'RANK_5Y', 'RANK_AVG5Y'
+        ];
+
+        // Remove unselected rank cols
+        currentCols = currentCols.filter(c => !allKnownRankCols.includes(c) || checkedRankCols.includes(c));
+
+        // Add selected rank cols if not already present
+        checkedRankCols.forEach(rc => {
+            if (!currentCols.includes(rc)) {
+                currentCols.push(rc);
+            }
+        });
+
+        customInput.value = currentCols.join(', ');
+        onConditionChanged();
+    }
+
+    document.querySelectorAll('.rank-col-tf').forEach(cb => {
+        cb.addEventListener('change', syncRankColsToCustomColumns);
+    });
+
+    document.getElementById('btnRankColsAll')?.addEventListener('click', () => {
+        document.querySelectorAll('.rank-col-tf').forEach(cb => cb.checked = true);
+        syncRankColsToCustomColumns();
+    });
+
+    document.getElementById('btnRankColsClear')?.addEventListener('click', () => {
+        document.querySelectorAll('.rank-col-tf').forEach(cb => cb.checked = false);
+        syncRankColsToCustomColumns();
+    });
+
+    document.getElementById('btnRankColsPrimary')?.addEventListener('click', () => {
+        const prim = document.getElementById('rankingMetric')?.value || '';
+        const aliasMap = {
+            'DROC': 'RANK_D', 'D': 'RANK_D',
+            'WROC': 'RANK_W', 'W': 'RANK_W',
+            'MROC': 'RANK_M', 'M_CUR': 'RANK_M', 'M': 'RANK_M',
+            'QROC': 'RANK_Q', 'Q_CUR': 'RANK_Q', 'Q': 'RANK_Q',
+            'HROC': 'RANK_H', 'H_CUR': 'RANK_H', 'H': 'RANK_H',
+            'YROC': 'RANK_Y', 'Y': 'RANK_Y',
+            'YTD': 'RANK_YTD', 'ROC_YTD': 'RANK_YTD',
+            '3M': 'RANK_3M', 'ROC_3M': 'RANK_3M',
+            '3Y': 'RANK_3Y', 'ROC_3Y': 'RANK_3Y',
+            '4Y': 'RANK_4Y', 'ROC_4Y': 'RANK_4Y',
+            '5Y': 'RANK_5Y', 'ROC_5Y': 'RANK_5Y',
+            'AVG5Y': 'RANK_AVG5Y', 'ROC_AVG5Y': 'RANK_AVG5Y',
+        };
+        const targetRank = aliasMap[prim] || (prim.startsWith('RANK_') ? prim : 'RANK_' + prim);
+        document.querySelectorAll('.rank-col-tf').forEach(cb => {
+            cb.checked = (cb.value === targetRank);
+        });
+        syncRankColsToCustomColumns();
+    });
+
+    // Initial update of badges
+    updateRankFilterSummary();
+    updatePrimaryRankIndicator();
+
+    // -------------------------------------------------------------------------
     // 9. Display Columns Picker
     // -------------------------------------------------------------------------
     const colPresetButtons = document.querySelectorAll('.col-preset-btn');
@@ -1635,7 +1987,10 @@ document.addEventListener('DOMContentLoaded', async () => {
             }
         }
 
-        const ruleCount = document.querySelectorAll('.rule-card').length + document.querySelectorAll('.ema-condition-card').length;
+        const rocCount = typeof extractRocConditions === 'function' ? extractRocConditions().length : 0;
+        const ruleCount = document.querySelectorAll('.rule-card').length + 
+                          document.querySelectorAll('.ema-condition-card').length + 
+                          rocCount;
         const isRootNegated = document.getElementById('rootGroupNotToggle')?.classList.contains('active');
         if (condEl) {
             const notPrefix = isRootNegated ? 'NOT ' : '';
@@ -1756,6 +2111,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 ranking_metric: rankingMetric,
                 ranking_order: rankingOrder,
                 selection_cutoffs: [],
+                selection_mode: 'all',
                 limit: limitVal,
                 columns: cols
             };
@@ -1842,19 +2198,49 @@ document.addEventListener('DOMContentLoaded', async () => {
             }
         }
 
+        // ROC dynamic condition builder rules
+        const rocRules = typeof extractRocConditions === 'function' ? extractRocConditions() : [];
+        if (rocRules.length > 0) {
+            const rocNode = rocRules[0];
+            if (!activeFilterGroup) {
+                activeFilterGroup = { match: 'all', rules: [rocNode], is_negated: false };
+            } else if (activeFilterGroup.match === 'all' && !activeFilterGroup.is_negated) {
+                activeFilterGroup.rules.push(rocNode);
+            } else {
+                activeFilterGroup = {
+                    match: 'all',
+                    rules: [activeFilterGroup, rocNode],
+                    is_negated: false
+                };
+            }
+        }
+
         const rankingMetric = document.getElementById('rankingMetric')?.value || null;
         const rankingOrder = document.getElementById('rankingOrder')?.value || 'desc';
         const limitVal = parseInt(document.getElementById('screenLimit')?.value, 10) || null;
 
-        // Cutoffs
+        // Cutoffs (Batch U4 Modular Selection)
         const cutoffs = [];
-        document.querySelectorAll('.cutoff-row').forEach(row => {
-            const m = row.querySelector('.cutoff-metric').value;
-            const max = parseInt(row.querySelector('.cutoff-max').value, 10);
-            if (m && max > 0) {
-                cutoffs.push({ metric: m, max_rank: max });
-            }
-        });
+        const isRankFilterEnabled = rankFilterToggle ? rankFilterToggle.checked : true;
+
+        if (isRankFilterEnabled) {
+            const cutoffN = parseInt(document.getElementById('rankCutoffThreshold')?.value, 10) || 100;
+            // 1. Multi-period checkboxes
+            document.querySelectorAll('.rank-filter-tf:checked').forEach(cb => {
+                cutoffs.push({ metric: cb.value, max_rank: cutoffN });
+            });
+
+            // 2. Custom period cutoff rows
+            document.querySelectorAll('.cutoff-row').forEach(row => {
+                const m = row.querySelector('.cutoff-metric')?.value;
+                const max = parseInt(row.querySelector('.cutoff-max')?.value, 10);
+                if (m && max > 0) {
+                    cutoffs.push({ metric: m, max_rank: max });
+                }
+            });
+        }
+
+        const selMode = (document.querySelector('input[name="selectionMode"]:checked')?.value || 'ALL').toUpperCase();
 
         // Columns
         const colsVal = document.getElementById('customColumns')?.value.trim();
@@ -1865,6 +2251,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             ranking_metric: rankingMetric,
             ranking_order: rankingOrder,
             selection_cutoffs: cutoffs,
+            selection_mode: selMode === 'ANY' ? 'any' : 'all',
             limit: limitVal,
             columns: cols
         };
@@ -2786,7 +3173,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
                     // Parse and validate numeric input
                     const val = parseFloat(rawVal);
-                    if (isNaN(val) || !isFinite(val) || val <= 0 || val > 100) {
+                    if (isNaN(val) || !isFinite(val) || val < 0 || val > 100) {
                         showToast('Please enter a valid band width percentage between 0 and 100 (e.g. 20 for 20%)', 'error');
                         input.value = confirmedStr;
                         return;
@@ -3227,8 +3614,8 @@ document.addEventListener('DOMContentLoaded', async () => {
                                 <tr>
                                     <td>${c.when ? c.when.replace('T', ' ').substring(0, 19) : '—'}</td>
                                     <td><strong>${c.timeframe || '—'}</strong></td>
-                                    <td>${c.old_pct !== null && c.old_pct !== undefined ? `${(c.old_pct * 100).toFixed(1)}%` : '—'}</td>
-                                    <td><strong>${c.new_pct !== null && c.new_pct !== undefined ? `${(c.new_pct * 100).toFixed(1)}%` : '—'}</strong></td>
+                                    <td>${(c.old_pct !== null && c.old_pct !== undefined && String(c.old_pct).trim() !== '') ? `${Number(c.old_pct).toFixed(1)}%` : '—'}</td>
+                                    <td><strong>${(c.new_pct !== null && c.new_pct !== undefined && String(c.new_pct).trim() !== '') ? `${Number(c.new_pct).toFixed(1)}%` : '—'}</strong></td>
                                     <td>${c.changed_by || c.source || 'cockpit'}</td>
                                 </tr>
                             `).join('')}
@@ -3314,8 +3701,8 @@ document.addEventListener('DOMContentLoaded', async () => {
                                 <td>${c.when ? c.when.replace('T', ' ').substring(0, 19) : '—'}</td>
                                 <td><strong>${c.symbol || '—'}</strong></td>
                                 <td><span class="badge badge-neutral">${c.timeframe || '—'}</span></td>
-                                <td>${c.old_pct !== null && c.old_pct !== undefined ? c.old_pct : '—'}</td>
-                                <td><strong style="color: var(--accent-blue-light);">${c.new_pct !== null && c.new_pct !== undefined ? c.new_pct : '—'}</strong></td>
+                                <td>${(c.old_pct !== null && c.old_pct !== undefined && String(c.old_pct).trim() !== '') ? `${Number(c.old_pct).toFixed(1)}%` : '—'}</td>
+                                <td><strong style="color: var(--accent-blue-light);">${(c.new_pct !== null && c.new_pct !== undefined && String(c.new_pct).trim() !== '') ? `${Number(c.new_pct).toFixed(1)}%` : '—'}</strong></td>
                                 <td>${c.changed_by || 'discretionary'}</td>
                                 <td class="text-muted">${c.source || 'discretionary'}</td>
                             </tr>

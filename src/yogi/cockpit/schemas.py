@@ -5,13 +5,13 @@ Strictly separates screening intent (ScreeningQuery) from presentation column pr
 """
 
 from typing import Any, Mapping, Optional, Sequence, Union
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from yogi.core.configuration.query import ScreeningQuery
 from yogi.core.contracts.filter import FilterGroupSpec, FilterOperator, FilterRuleSpec
 from yogi.core.contracts.ranking import RankingOrder
 from yogi.core.contracts.results import ColumnDefinition, ExportFormat, QueryResultPayload
-from yogi.core.contracts.selection import RankCutoffSpec
+from yogi.core.contracts.selection import RankCutoffSpec, SelectionMode
 
 
 # -----------------------------------------------------------------------------
@@ -32,6 +32,8 @@ class FilterRuleIn(BaseModel):
     p2: Optional[int] = None
     state: Optional[str] = None
     lookback: Optional[int] = None
+    period: Optional[str] = None
+    bucket: Optional[str] = None
 
     @model_validator(mode="after")
     def validate_ema_rule(self) -> "FilterRuleIn":
@@ -137,6 +139,104 @@ class FilterRuleIn(BaseModel):
             if self.lookback is not None:
                 self.params["lookback"] = self.lookback
 
+        elif self.condition_type == "roc":
+            period_map = {
+                "current_month": "current_month",
+                "last_month": "last_month",
+                "last_to_last_month": "last_to_last_month",
+                "current_quarter": "current_quarter",
+                "last_quarter": "last_quarter",
+                "current_half_year": "current_half_year",
+                "ytd": "ytd",
+                "current_year": "ytd",
+                "last_year": "last_year",
+                "preceding_last_4_years": "preceding_last_4_years",
+                "last_4_years": "preceding_last_4_years",
+                "avg_preceding_last_5_years": "avg_preceding_last_5_years",
+                "avg_last_5_years": "avg_preceding_last_5_years",
+            }
+            bucket_map = {
+                "lt_10": "lt_10",
+                "less_than_10": "lt_10",
+                "<10": "lt_10",
+                "less than 10%": "lt_10",
+                "10_to_20": "10_to_20",
+                "10-20": "10_to_20",
+                "10% to 20%": "10_to_20",
+                "20_to_30": "20_to_30",
+                "20-30": "20_to_30",
+                "20% to 30%": "20_to_30",
+                "30_to_40": "30_to_40",
+                "30-40": "30_to_40",
+                "30% to 40%": "30_to_40",
+                "40_to_50": "40_to_50",
+                "40-50": "40_to_50",
+                "40% to 50%": "40_to_50",
+                "50_to_60": "50_to_60",
+                "50-60": "50_to_60",
+                "50% to 60%": "50_to_60",
+                "60_to_70": "60_to_70",
+                "60-70": "60_to_70",
+                "60% to 70%": "60_to_70",
+                "70_to_80": "70_to_80",
+                "70-80": "70_to_80",
+                "70% to 80%": "70_to_80",
+                "80_to_90": "80_to_90",
+                "80-90": "80_to_90",
+                "80% to 90%": "80_to_90",
+                "90_to_100": "90_to_100",
+                "90-100": "90_to_100",
+                "90% to 100%": "90_to_100",
+                "gt_100": "gt_100",
+                "more_than_100": "gt_100",
+                ">100": "gt_100",
+                "more than 100%": "gt_100",
+            }
+
+            # 1. Period extraction & validation
+            raw_p = self.period or (self.params.get("period") if self.params else None)
+            if not raw_p and self.field and self.field.upper().startswith("ROC_"):
+                raw_p = self.field[4:].lower()
+
+            if not raw_p or not isinstance(raw_p, str) or raw_p.strip().lower() not in period_map:
+                valid_p_names = (
+                    "current_month", "last_month", "last_to_last_month",
+                    "current_quarter", "last_quarter", "current_half_year",
+                    "ytd", "last_year", "preceding_last_4_years", "avg_preceding_last_5_years"
+                )
+                raise ValueError(
+                    f"Invalid ROC period '{raw_p}'. Must be one of {valid_p_names}"
+                )
+            canon_p = period_map[raw_p.strip().lower()]
+            self.period = canon_p
+
+            # 2. Bucket extraction & validation (default to gt_100)
+            raw_b = self.bucket or (self.params.get("bucket") if self.params else None) or self.value or self.state
+            if raw_b is None:
+                raw_b = "gt_100"
+
+            if not isinstance(raw_b, str) or raw_b.strip().lower() not in bucket_map:
+                valid_b_names = (
+                    "lt_10", "10_to_20", "20_to_30", "30_to_40", "40_to_50",
+                    "50_to_60", "60_to_70", "70_to_80", "80_to_90", "90_to_100", "gt_100"
+                )
+                raise ValueError(
+                    f"Invalid ROC bucket '{raw_b}'. Must be one of {valid_b_names}"
+                )
+            canon_b = bucket_map[raw_b.strip().lower()]
+            self.bucket = canon_b
+
+            # 3. Bar timeframe separation: for PipelineOrchestrator bar retrieval, timeframe must be "D"
+            self.timeframe = "D"
+            if not self.field:
+                self.field = f"ROC_{canon_p.upper()}"
+            self.value = canon_b
+            self.op = FilterOperator.EQ
+
+            self.params["period"] = canon_p
+            self.params["bucket"] = canon_b
+            self.params["timeframe"] = "D"
+
         return self
 
     def to_core_spec(self) -> FilterRuleSpec:
@@ -152,6 +252,10 @@ class FilterRuleIn(BaseModel):
             p_dict["state"] = self.state
         if self.lookback is not None and "lookback" not in p_dict:
             p_dict["lookback"] = self.lookback
+        if self.period is not None and "period" not in p_dict:
+            p_dict["period"] = self.period
+        if self.bucket is not None and "bucket" not in p_dict:
+            p_dict["bucket"] = self.bucket
 
         return FilterRuleSpec(
             field=self.field,
@@ -199,10 +303,20 @@ class ScreenRequestIn(BaseModel):
     ranking_metric: Optional[str] = None
     ranking_order: RankingOrder = RankingOrder.DESCENDING
     selection_cutoffs: Sequence[RankCutoffIn] = Field(default_factory=list)
+    selection_mode: SelectionMode = SelectionMode.ALL
     limit: Optional[int] = Field(default=None, gt=0)
 
     # Presentation column projection -> passed exclusively to ResultAssembler
     columns: Optional[Sequence[str]] = None
+
+    @field_validator("selection_mode", mode="before")
+    @classmethod
+    def _normalize_selection_mode(cls, v: Any) -> Any:
+        if isinstance(v, str):
+            v_clean = v.strip().lower()
+            if v_clean in ("all", "any"):
+                return SelectionMode(v_clean)
+        return v
 
 
 class StrategyRunIn(BaseModel):
@@ -219,9 +333,19 @@ class ExportRequestIn(BaseModel):
     ranking_metric: Optional[str] = None
     ranking_order: RankingOrder = RankingOrder.DESCENDING
     selection_cutoffs: Sequence[RankCutoffIn] = Field(default_factory=list)
+    selection_mode: SelectionMode = SelectionMode.ALL
     limit: Optional[int] = Field(default=None, gt=0)
     columns: Optional[Sequence[str]] = None
     format: ExportFormat = ExportFormat.XLSX
+
+    @field_validator("selection_mode", mode="before")
+    @classmethod
+    def _normalize_selection_mode(cls, v: Any) -> Any:
+        if isinstance(v, str):
+            v_clean = v.strip().lower()
+            if v_clean in ("all", "any"):
+                return SelectionMode(v_clean)
+        return v
 
 
 class RefreshRequestIn(BaseModel):
@@ -705,6 +829,7 @@ def to_screening_query(
     ranking_metric: Optional[str] = None,
     ranking_order: RankingOrder = RankingOrder.DESCENDING,
     selection_cutoffs: Sequence[RankCutoffIn] = (),
+    selection_mode: SelectionMode = SelectionMode.ALL,
     limit: Optional[int] = None,
 ) -> ScreeningQuery:
     """Build a frozen ScreeningQuery free of presentation columns."""
@@ -713,6 +838,7 @@ def to_screening_query(
         ranking_metric=ranking_metric,
         ranking_order=ranking_order,
         selection_cutoffs=to_core_cutoffs(selection_cutoffs),
+        selection_mode=selection_mode,
         limit=limit,
     )
 

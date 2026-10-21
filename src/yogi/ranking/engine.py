@@ -20,6 +20,11 @@ def _to_float(v: Any) -> Optional[float]:
     """Safely convert value to float, excluding booleans and NaN."""
     if v is None or isinstance(v, bool):
         return None
+    if isinstance(v, Mapping):
+        for candidate_key in ("roc", "val", "value", "score", "spread_pct", "cur_diff"):
+            if candidate_key in v:
+                return _to_float(v[candidate_key])
+        return None
     try:
         f = float(v)
         if math.isnan(f):

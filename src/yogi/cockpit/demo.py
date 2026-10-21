@@ -95,15 +95,19 @@ class DemoBandsRepository(IBandsRepository, IBandAuditRepository, IBandBackupSer
                 if pd.notna(val):
                     self._bands[sym][tf] = float(val)
 
-    def get_band(self, symbol: str, timeframe: str) -> Optional[float]:
+    def get_band(self, symbol: str, timeframe: str) -> float:
         sym = symbol.strip().upper()
         tf = timeframe.strip().upper()
-        return self._bands.get(sym, {}).get(tf)
+        val = self._bands.get(sym, {}).get(tf)
+        return float(val) if val is not None else 0.0
 
-    def get_all_bands(self, symbol: str) -> Mapping[str, Optional[float]]:
+    def get_all_bands(self, symbol: str) -> Mapping[str, float]:
         sym = symbol.strip().upper()
         sym_bands = self._bands.get(sym, {})
-        return {tf: sym_bands.get(tf) for tf in BAND_TIMEFRAMES}
+        return {
+            tf: (float(sym_bands[tf]) if sym_bands.get(tf) is not None else 0.0)
+            for tf in BAND_TIMEFRAMES
+        }
 
     def set_band(
         self,

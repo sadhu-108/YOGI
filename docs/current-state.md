@@ -239,6 +239,18 @@
       - Grouped Band Position Shortcut: Compact control group in Card 2 replacing disparate buttons: `[Band Position: Select ▾]` (`above_m`, `inside_m`, `below_m`, `outside_2plus`, `reaction`) with `[+ Apply]`.
       - Multi-Period Rank Cutoff Templates: Dropdown template convenience in Card 4 (`Top 100 Month & Year`, `Top 50 Across Quarters`, `Top 100 All Timeframes`) appending standard `RankCutoffIn` records adhering strictly to frozen `SelectionMode.ALL`.
       - Historical Period Breakdown: Collapsible accordion in Stock Detail Drawer presenting multi-year CAGRs (`CAGR_1`..`CAGR_10`), calendar year returns (`Y2025`..`Y2021`), and fixed-date anchored sprints (`SPA_A21`..`SPA_A26`).
+    - **Batch U4: Controlled Modular Ranking System & Cockpit Integration**:
+      - Replaced hardcoded `SelectionMode.ALL` in `PipelineOrchestrator.execute_screen` with explicit `query.selection_mode`.
+      - Extended `ScreeningQuery`, `ScreenRequestIn`, and `ExportRequestIn` to expose `selection_mode: SelectionMode` (default `ALL`, supporting `ANY`) with case-insensitive Pydantic validation.
+      - Implemented multi-period rank cutoffs with configurable threshold $N$, ALL (intersection) / ANY (union) combination modes, and graceful bypass when disabled or unconfigured.
+      - Preserved the canonical pipeline sequence: $\text{QUALIFY} \to \text{ORDER} \to \text{SHOW} \to \text{LIMIT} \to \text{RESULTS}$.
+      - Enriched universe dataset in `AppState.refresh` with cross-sectional timeframe ranks (`RANK_D`, `RANK_W`, `RANK_M`, `RANK_Q`, `RANK_H`, `RANK_Y`, `RANK_CHG`) using `RankingEngine`.
+      - Updated Cockpit UI Workbench:
+        - Card 3 (ORDER): Primary ranking metric dropdown, direction toggle (`desc`/`asc`), and visual indicator badge.
+        - Card 4 (SHOW): Enable/disable switch, threshold $N$ input, preset pills (20, 50, 100, 200), combination mode radio pills (ALL/ANY), timeframe filter chips (Day..Year), and active rule summary.
+        - Card 5 (RESULTS): Dedicated "Ranking Periods to Return" multi-checkboxes with All/Primary/Clear quick buttons.
+        - Results Table: Sequential row position (`#`) column distinct from metric ranks.
+      - Verified by `tests/cockpit/test_batch_u4_ranking_modular.py` (17/17 tests passing).
     - Operates with zero Node/NPM build toolchain dependencies.
   - **Presentation Boundary & Mentor Review Status**:
     - The current Cockpit UI in `src/yogi/cockpit/static/*` operates as a verified functional prototype workbench for validating analytical calculations, multi-timeframe synthesis, screening queries, and drawer telemetry.

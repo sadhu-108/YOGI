@@ -139,7 +139,7 @@ class MockTestProvider(IDataProvider):
 def test_ingestion_service_up_to_date_triggers_no_provider_calls(tmp_path: Path):
     """Cohort A: UP_TO_DATE cached bars result in zero provider calls."""
     cache = MarketBarsCache(cache_dir=tmp_path)
-    fresh_bars = generate_bar_series(datetime(2026, 1, 1), 104)
+    fresh_bars = generate_bar_series(datetime(2026, 1, 1), 105)
     cache.save_bars({"TCS": fresh_bars}, exchange="NSE", provider="mock_test_provider")
 
     provider = MockTestProvider()
@@ -154,7 +154,7 @@ def test_ingestion_service_up_to_date_triggers_no_provider_calls(tmp_path: Path)
     )
 
     assert "TCS" in result
-    assert len(result["TCS"]) == 104
+    assert len(result["TCS"]) == 105
     assert len(provider.daily_calls) == 0
     assert len(provider.batch_calls) == 0
     assert len(result.failed_symbols) == 0

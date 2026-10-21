@@ -699,6 +699,71 @@ class AppState:
                     f"Live dataset rebuild failed: No usable records produced by provider '{target_provider}'."
                 )
 
+            # Enrich raw_dataset with canonical timeframe universe ranks using RankingEngine
+            # Matching prototype _add_ranks (all 12 canonical periods and RANK_CHG)
+            if raw_dataset and hasattr(self._orchestrator, "ranking_rule") and self._orchestrator.ranking_rule:
+                r_rule = self._orchestrator.ranking_rule
+                tf_metrics = {
+                    "D": "DROC",
+                    "W": "WROC",
+                    "M": "M_CUR",
+                    "Q": "Q_CUR",
+                    "H": "H_CUR",
+                    "Y": "YROC",
+                    "YTD": "YTD",
+                    "3M": "3M",
+                    "3Y": "3Y",
+                    "4Y": "4Y",
+                    "5Y": "5Y",
+                    "AVG5Y": "AVG5Y",
+                }
+                tf_fallbacks = {
+                    "M": "MROC",
+                    "Q": "QROC",
+                    "H": "HROC",
+                    "YTD": "ROC_YTD",
+                    "3M": "ROC_3M",
+                    "3Y": "ROC_3Y",
+                    "4Y": "ROC_4Y",
+                    "5Y": "ROC_5Y",
+                    "AVG5Y": "ROC_AVG5Y",
+                }
+                for tf, met in tf_metrics.items():
+                    target_met = met
+                    if not any(met in rec for rec in raw_dataset.values()):
+                        fallback = tf_fallbacks.get(tf)
+                        if fallback and any(fallback in rec for rec in raw_dataset.values()):
+                            target_met = fallback
+                        else:
+                            continue
+
+                    try:
+                        rank_res = r_rule.rank(raw_dataset, metric=target_met)
+                        for sym, r_val in rank_res.ranks.items():
+                            if sym in raw_dataset:
+                                rec_dict = dict(raw_dataset[sym])
+                                rec_dict[f"RANK_{tf}"] = r_val
+                                rec_dict[f"RANK_{target_met}"] = r_val
+                                if tf == "M":
+                                    rec_dict["RANK_M_CUR"] = r_val
+                                raw_dataset[sym] = rec_dict
+                    except Exception as r_exc:
+                        logger.debug("Failed computing universe rank for %s (%s): %s", tf, target_met, r_exc)
+
+                # Rank change (M_CUR vs M_P1)
+                if any("M_CUR" in rec and "M_P1" in rec for rec in raw_dataset.values()):
+                    try:
+                        m_ranks = r_rule.rank(raw_dataset, metric="M_CUR").ranks
+                        p1_ranks = r_rule.rank(raw_dataset, metric="M_P1").ranks
+                        for sym in raw_dataset:
+                            if sym in m_ranks and sym in p1_ranks:
+                                raw_dataset[sym] = {
+                                    **raw_dataset[sym],
+                                    "RANK_CHG": p1_ranks[sym] - m_ranks[sym],
+                                }
+                    except Exception as chg_exc:
+                        logger.debug("Failed computing RANK_CHG: %s", chg_exc)
+
             # Freeze deeply and atomically swap pointer and active components
             self._dataset = freeze_dataset(raw_dataset)
             self._last_built_at = datetime.now(timezone.utc)
@@ -940,7 +1005,7 @@ class AppState:
                     ema_state=row.get(f"EMA_{tf}"),
                     band_state=row.get(f"BANDST_{tf}"),
                     band_distance=row.get(f"BD_{tf}"),
-                    band_width=row.get(f"BAND_{tf}"),
+                    band_width=float(row[f"BAND_{tf}"]) if row.get(f"BAND_{tf}") is not None else 0.0,
                     roc=row.get(f"{tf}ROC"),
                     speed=row.get(f"SPD_{tf}"),
                     band_upper=row.get(f"BANDUP_{tf}"),

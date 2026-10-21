@@ -5,7 +5,7 @@ from typing import Optional, Sequence
 
 from yogi.core.contracts.filter import FilterGroupSpec
 from yogi.core.contracts.ranking import RankingOrder
-from yogi.core.contracts.selection import RankCutoffSpec
+from yogi.core.contracts.selection import RankCutoffSpec, SelectionMode
 
 
 @dataclass(frozen=True)
@@ -15,7 +15,7 @@ class ScreeningQuery:
     Strictly adheres to the QUALIFY -> ORDER -> SHOW pipeline model:
     - QUALIFY: Boolean qualification filter tree (FilterGroupSpec)
     - ORDER:   Relative standing metric and sort direction (ranking_metric, ranking_order)
-    - SHOW:    Rank cutoff criteria and survival limits (selection_cutoffs, limit)
+    - SHOW:    Rank cutoff criteria and survival limits (selection_cutoffs, selection_mode, limit)
 
     Does NOT contain presentation-column projection (columns), which is the
     exclusive responsibility of the Results Engine (IResultAssembler).
@@ -29,6 +29,7 @@ class ScreeningQuery:
 
     # SHOW
     selection_cutoffs: Sequence[RankCutoffSpec] = field(default_factory=tuple)
+    selection_mode: SelectionMode = SelectionMode.ALL
 
     # RESULT CARDINALITY / PRESENTATION
     limit: Optional[int] = None

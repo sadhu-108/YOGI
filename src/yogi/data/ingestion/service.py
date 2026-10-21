@@ -118,15 +118,60 @@ class MarketDataIngestionService:
         if resolved_target_date is None:
             resolved_target_date = opts.get("target_date") or opts.get("as_of")
 
+        ist_tz = timezone(timedelta(hours=5, minutes=30))
+        now_ist = datetime.now(ist_tz)
+        today_ist = now_ist.date()
+
         session_completed_opt = opts.get("session_completed")
         if session_completed_opt is not None:
             session_completed = bool(session_completed_opt)
+            if resolved_target_date is None:
+                resolved_target_date = today_ist
         elif resolved_target_date is not None:
-            session_completed = False
+            # Dynamically infer session completion for resolved_target_date
+            t_date: date
+            t_time: Optional[dt_time] = None
+            if isinstance(resolved_target_date, datetime):
+                dt_obj = (
+                    resolved_target_date.astimezone(ist_tz)
+                    if resolved_target_date.tzinfo is not None
+                    else resolved_target_date
+                )
+                t_date = dt_obj.date()
+                if dt_obj.time() != dt_time(0, 0):
+                    t_time = dt_obj.time()
+            elif isinstance(resolved_target_date, date):
+                t_date = resolved_target_date
+            elif isinstance(resolved_target_date, str):
+                s = resolved_target_date.strip()
+                try:
+                    t_date = date.fromisoformat(s)
+                except ValueError:
+                    try:
+                        dt_parsed = datetime.fromisoformat(s)
+                        dt_obj = (
+                            dt_parsed.astimezone(ist_tz)
+                            if dt_parsed.tzinfo is not None
+                            else dt_parsed
+                        )
+                        t_date = dt_obj.date()
+                        if dt_obj.time() != dt_time(0, 0):
+                            t_time = dt_obj.time()
+                    except ValueError:
+                        t_date = today_ist
+            else:
+                t_date = today_ist
+
+            if t_date < today_ist:
+                session_completed = True
+            elif t_date > today_ist:
+                session_completed = False
+            else:
+                # Target date is today: compare against Indian market close (15:30 IST)
+                cutoff = dt_time(15, 30)
+                session_completed = (t_time >= cutoff) if t_time is not None else (now_ist.time() >= cutoff)
         else:
-            ist_tz = timezone(timedelta(hours=5, minutes=30))
-            now_ist = datetime.now(ist_tz)
-            resolved_target_date = now_ist.date()
+            resolved_target_date = today_ist
             # Indian markets close at 15:30 IST
             session_completed = (now_ist.time() >= dt_time(15, 30))
 
