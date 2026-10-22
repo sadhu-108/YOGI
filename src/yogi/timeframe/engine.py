@@ -11,6 +11,7 @@ import pandas as pd
 
 from yogi.core.contracts.market_data import MarketBar, MarketContext, Timeframe
 from yogi.core.contracts.timeframe import ITimeframeEngine
+from yogi.timeframe.cache import TimeframeCache
 
 # Authoritative resampling frequency mapping preserved from verified prototype
 # config.py and core_math/formulas.py
@@ -225,18 +226,71 @@ def build_market_context(
 class TimeframeEngine(ITimeframeEngine):
     """Authoritative engine coordinating multi-timeframe candle synthesis."""
 
-    def __init__(self, half_year_policy: str = "prototype") -> None:
+    def __init__(
+        self,
+        half_year_policy: str = "prototype",
+        cache: Optional[TimeframeCache] = None,
+        enable_cache: bool = True,
+        max_cache_entries: int = 10000,
+    ) -> None:
         self.half_year_policy = half_year_policy
+        if cache is not None:
+            self._cache: Optional[TimeframeCache] = cache
+        elif enable_cache:
+            self._cache = TimeframeCache(max_entries=max_cache_entries)
+        else:
+            self._cache = None
+
+    @property
+    def cache(self) -> Optional[TimeframeCache]:
+        """Return the underlying TimeframeCache instance if caching is enabled."""
+        return self._cache
+
+    @property
+    def cache_stats(self) -> Optional[dict[str, Any]]:
+        """Return operational cache metrics if caching is enabled."""
+        return self._cache.stats() if self._cache is not None else None
+
+    def invalidate_cache(
+        self,
+        symbol: Optional[str] = None,
+        exchange: Optional[str] = None,
+    ) -> int:
+        """Invalidate cached derived timeframe data for a symbol, exchange, or all entries."""
+        if self._cache is not None:
+            return self._cache.invalidate(symbol=symbol, exchange=exchange)
+        return 0
+
+    def clear_cache(self) -> None:
+        """Clear all cached derived timeframe data."""
+        if self._cache is not None:
+            self._cache.clear()
 
     def resample(
         self,
         bars: Sequence[MarketBar],
         timeframe: Union[str, Timeframe],
         half_year_policy: Optional[str] = None,
+        symbol: Optional[str] = None,
+        exchange: Optional[str] = None,
     ) -> tuple[MarketBar, ...]:
         """Resample daily bars into the specified target timeframe."""
         policy = half_year_policy if half_year_policy is not None else self.half_year_policy
-        return resample_bars(bars=bars, timeframe=timeframe, half_year_policy=policy)
+        tf_key = _normalize_timeframe_key(timeframe)
+        ex = (exchange or "NSE").strip().upper()
+        sym = (symbol or "").strip().upper()
+
+        if self._cache is not None and sym and bars:
+            cached = self._cache.get(ex, sym, tf_key, bars, half_year_policy=policy)
+            if cached is not None:
+                return cached
+
+        resampled = resample_bars(bars=bars, timeframe=tf_key, half_year_policy=policy)
+
+        if self._cache is not None and sym and bars:
+            self._cache.put(ex, sym, tf_key, bars, resampled, half_year_policy=policy)
+
+        return resampled
 
     def build_context(
         self,
@@ -247,13 +301,45 @@ class TimeframeEngine(ITimeframeEngine):
         as_of: Optional[datetime] = None,
         half_year_policy: Optional[str] = None,
     ) -> MarketContext:
-        """Construct an immutable MarketContext across requested timeframes."""
+        """Construct an immutable MarketContext across requested timeframes with caching."""
         policy = half_year_policy if half_year_policy is not None else self.half_year_policy
-        return build_market_context(
+        if timeframes is None:
+            target_tfs: Sequence[Union[str, Timeframe]] = tuple(TIMEFRAME_RULES.keys())
+        else:
+            target_tfs = timeframes
+
+        ex = (exchange or "NSE").strip().upper()
+        sym = (symbol or "").strip().upper()
+
+        bars_by_tf: dict[str, Sequence[MarketBar]] = {}
+        for tf in target_tfs:
+            tf_key = _normalize_timeframe_key(tf)
+            if tf_key == "D":
+                # Daily timeframe returns canonical sorted/deduplicated bars directly without caching
+                clean = resample_bars(daily_bars, "D", half_year_policy=policy)
+                bars_by_tf[tf_key] = clean
+                continue
+
+            if self._cache is not None and daily_bars:
+                cached = self._cache.get(ex, sym, tf_key, daily_bars, half_year_policy=policy)
+                if cached is not None:
+                    bars_by_tf[tf_key] = cached
+                    continue
+
+            resampled = resample_bars(daily_bars, tf_key, half_year_policy=policy)
+            if self._cache is not None and daily_bars:
+                self._cache.put(ex, sym, tf_key, daily_bars, resampled, half_year_policy=policy)
+            bars_by_tf[tf_key] = resampled
+
+        latest_ts: Optional[datetime] = None
+        if as_of is not None:
+            latest_ts = as_of
+        elif daily_bars:
+            latest_ts = max(b.timestamp for b in daily_bars)
+
+        return MarketContext(
             symbol=symbol,
             exchange=exchange,
-            daily_bars=daily_bars,
-            timeframes=timeframes,
-            as_of=as_of,
-            half_year_policy=policy,
+            bars_by_timeframe=bars_by_tf,
+            as_of=latest_ts,
         )

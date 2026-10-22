@@ -35,3 +35,15 @@ class ITimeframeEngine(ABC):
     ) -> MarketContext:
         """Construct an immutable MarketContext across requested timeframes."""
         pass
+
+    def invalidate_cache(
+        self,
+        symbol: Optional[str] = None,
+        exchange: Optional[str] = None,
+    ) -> int:
+        """Invalidate cached derived timeframe data for a symbol, exchange, or all entries."""
+        return 0
+
+    def clear_cache(self) -> None:
+        """Clear all cached derived timeframe data."""
+        pass

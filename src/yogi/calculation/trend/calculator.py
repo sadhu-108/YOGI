@@ -108,6 +108,7 @@ def calculate_dynamic_ema_signal(
     p2: int,
     timeframe: str = "D",
     closed_candle_only: Optional[bool] = None,
+    ema_cache: Optional[dict[tuple[int, int], pd.Series]] = None,
 ) -> dict[str, Any]:
     """Calculate dynamic EMA relationship, crossover signals, and strength spread.
 
@@ -158,7 +159,7 @@ def calculate_dynamic_ema_signal(
 
     # Convert bars to closing series
     if isinstance(bars, pd.Series):
-        c = bars.dropna()
+        c = bars.dropna() if bars.hasnans else bars
     elif isinstance(bars, (list, tuple)):
         if not bars:
             return empty_result
@@ -179,20 +180,57 @@ def calculate_dynamic_ema_signal(
         return empty_result
 
     # Compute exponential moving averages with adjust=False
-    f_series = ema(c, p1).dropna()
-    s_series = ema(c, p2).dropna()
+    if ema_cache is not None and isinstance(c, pd.Series):
+        s_id = id(c)
+        f_key = (s_id, p1)
+        s_key = (s_id, p2)
+
+        f_entry = ema_cache.get(f_key)
+        f_series = None
+        if f_entry is not None:
+            if isinstance(f_entry, tuple) and len(f_entry) == 2:
+                src_series, cached_series = f_entry
+                if src_series is c:
+                    f_series = cached_series
+            elif isinstance(f_entry, pd.Series):
+                f_series = f_entry
+
+        if f_series is None:
+            f_series = ema(c, p1)
+            ema_cache[f_key] = (c, f_series)
+
+        s_entry = ema_cache.get(s_key)
+        s_series = None
+        if s_entry is not None:
+            if isinstance(s_entry, tuple) and len(s_entry) == 2:
+                src_series, cached_series = s_entry
+                if src_series is c:
+                    s_series = cached_series
+            elif isinstance(s_entry, pd.Series):
+                s_series = s_entry
+
+        if s_series is None:
+            s_series = ema(c, p2)
+            ema_cache[s_key] = (c, s_series)
+    else:
+        f_series = ema(c, p1)
+        s_series = ema(c, p2)
+
     n = min(len(f_series), len(s_series))
     if n < min_required:
         return empty_result
 
+    f_vals = f_series.values
+    s_vals = s_series.values
+
     if closed_candle_only:
         # Last closed/completed candle is iloc[-2], candle before is iloc[-3]
-        f_cur, s_cur = float(f_series.iloc[-2]), float(s_series.iloc[-2])
-        f_prev, s_prev = float(f_series.iloc[-3]), float(s_series.iloc[-3])
+        f_cur, s_cur = float(f_vals[-2]), float(s_vals[-2])
+        f_prev, s_prev = float(f_vals[-3]), float(s_vals[-3])
     else:
         # Latest available candle is iloc[-1], candle before is iloc[-2]
-        f_cur, s_cur = float(f_series.iloc[-1]), float(s_series.iloc[-1])
-        f_prev, s_prev = float(f_series.iloc[-2]), float(s_series.iloc[-2])
+        f_cur, s_cur = float(f_vals[-1]), float(s_vals[-1])
+        f_prev, s_prev = float(f_vals[-2]), float(s_vals[-2])
 
     cur = f_cur - s_cur
     prev = f_prev - s_prev
@@ -1176,7 +1214,18 @@ class TrendCalculator(ICalcModule):
                     "ema_slow": None,
                     "spread_pct": None,
                 }
-            return calculate_dynamic_ema_signal(bars, p1=int(p1), p2=int(p2), timeframe=tf_str)
+            series_cache = context.parameters.get("series_cache") if context.parameters else None
+            ema_cache = context.parameters.get("ema_cache") if context.parameters else None
+            c_series = None
+            if series_cache is not None:
+                ckey = (symbol, tf_str)
+                c_series = series_cache.get(ckey)
+                if c_series is None:
+                    c_series = pd.Series([float(b.close) for b in bars if b.close is not None and not pd.isna(b.close)])
+                    series_cache[ckey] = c_series
+
+            series_or_bars = c_series if c_series is not None else bars
+            return calculate_dynamic_ema_signal(series_or_bars, p1=int(p1), p2=int(p2), timeframe=tf_str, ema_cache=ema_cache)
 
         elif c_type == "roc":
             period = getattr(rule, "period", None)

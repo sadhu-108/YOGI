@@ -4,7 +4,7 @@ import math
 from typing import Any, Mapping, Optional, Sequence
 
 from yogi.core.contracts.results import ColumnDefinition, IResultAssembler, QueryResultPayload
-from yogi.results.columns import DEFAULT_SUMMARY_COLUMNS, build_column_definition
+from yogi.results.columns import DEFAULT_SUMMARY_COLUMNS, RANK_COLUMN_ALIASES, build_column_definition
 
 
 def _clean_value(val: Any) -> Any:
@@ -70,6 +70,12 @@ class ResultAssembler(IResultAssembler):
             row: dict[str, Any] = {}
             for k in projected_keys:
                 val = rec.get(k)
+                if (val is None or (isinstance(val, float) and math.isnan(val))) and k in RANK_COLUMN_ALIASES:
+                    for alt_key in RANK_COLUMN_ALIASES[k]:
+                        alt_val = rec.get(alt_key)
+                        if alt_val is not None and not (isinstance(alt_val, float) and math.isnan(alt_val)):
+                            val = alt_val
+                            break
                 row[k] = _clean_value(val)
             cleaned_rows.append(row)
 

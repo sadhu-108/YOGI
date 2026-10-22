@@ -1879,23 +1879,38 @@ document.addEventListener('DOMContentLoaded', async () => {
         const customInput = document.getElementById('customColumns');
         if (!customInput) return;
 
-        let currentCols = customInput.value.split(',').map(c => c.trim()).filter(Boolean);
         const allKnownRankCols = [
-            'RANK_D', 'RANK_W', 'RANK_M', 'RANK_Q', 'RANK_H', 'RANK_Y',
+            'RANK_D', 'RANK_DROC',
+            'RANK_W', 'RANK_WROC',
+            'RANK_M', 'RANK_M_CUR', 'RANK_MROC',
+            'RANK_Q', 'RANK_Q_CUR', 'RANK_QROC',
+            'RANK_H', 'RANK_H_CUR', 'RANK_HROC',
+            'RANK_Y', 'RANK_YROC',
             'RANK_YTD', 'RANK_3M', 'RANK_3Y', 'RANK_4Y', 'RANK_5Y', 'RANK_AVG5Y'
         ];
 
-        // Remove unselected rank cols
-        currentCols = currentCols.filter(c => !allKnownRankCols.includes(c) || checkedRankCols.includes(c));
+        let currentCols = customInput.value.split(',').map(c => c.trim()).filter(Boolean);
+        let nonRankCols = currentCols.filter(c => !allKnownRankCols.includes(c) && !c.startsWith('RANK_'));
 
-        // Add selected rank cols if not already present
+        // If no non-rank columns exist (e.g. customColumns was empty or only contained rank columns),
+        // seed non-rank columns from the active preset (defaulting to summary preset).
+        if (nonRankCols.length === 0) {
+            const activePresetKey = document.querySelector('.col-preset-btn.active')?.dataset?.preset || 'summary';
+            const presetCols = (COLUMN_PRESETS[activePresetKey] && COLUMN_PRESETS[activePresetKey].length > 0)
+                ? COLUMN_PRESETS[activePresetKey]
+                : (COLUMN_PRESETS.summary || []);
+            nonRankCols = presetCols.filter(c => !allKnownRankCols.includes(c) && !c.startsWith('RANK_'));
+        }
+
+        // Build the combined list preserving non-rank columns and appending selected rank columns
+        const nextCols = [...nonRankCols];
         checkedRankCols.forEach(rc => {
-            if (!currentCols.includes(rc)) {
-                currentCols.push(rc);
+            if (!nextCols.includes(rc)) {
+                nextCols.push(rc);
             }
         });
 
-        customInput.value = currentCols.join(', ');
+        customInput.value = nextCols.join(', ');
         onConditionChanged();
     }
 

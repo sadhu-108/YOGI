@@ -498,3 +498,44 @@ def test_final_design_institutional_momentum_screen(client):
     # Verify column projection
     keys = [c["key"] for c in data["columns"]]
     assert keys == institutional_screen["columns"]
+
+
+def test_screening_with_rank_m_column_selection(client):
+    """Verify that requesting RANK_M in columns with ranking_metric M_CUR populates non-None rank values and base fields."""
+    payload = {
+        "filter_group": {
+            "match": "all",
+            "rules": [
+                {"field": "price", "op": ">", "value": 0}
+            ]
+        },
+        "ranking_metric": "M_CUR",
+        "ranking_order": "desc",
+        "limit": 10,
+        "columns": ["symbol", "name", "price", "RANK_M"]
+    }
+    resp = client.post("/api/screen", json=payload)
+    assert resp.status_code == 200
+    data = resp.json()
+
+    assert data["selected_count"] > 0
+    assert len(data["rows"]) == data["selected_count"]
+
+    # Verify that columns and rows are correctly populated (not None / not blank)
+    for row in data["rows"]:
+        assert row["symbol"] is not None
+        assert row["name"] is not None
+        assert row["price"] is not None
+        assert isinstance(row["RANK_M"], (int, float))
+        assert row["RANK_M"] >= 1
+
+
+def test_u2_sync_rank_cols_preserves_base_summary_columns():
+    """Verify app.js syncRankColsToCustomColumns seeds base columns from active preset when custom columns is empty."""
+    js_path = Path("src/yogi/cockpit/static/js/app.js")
+    assert js_path.exists()
+    content = js_path.read_text(encoding="utf-8")
+
+    assert "function syncRankColsToCustomColumns()" in content
+    assert "nonRankCols.length === 0" in content
+    assert "COLUMN_PRESETS.summary" in content

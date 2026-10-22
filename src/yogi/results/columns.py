@@ -26,6 +26,37 @@ DEFAULT_SUMMARY_COLUMNS: tuple[str, ...] = (
     "grade",
 )
 
+RANK_COLUMN_ALIASES: dict[str, tuple[str, ...]] = {
+    # Month aliases
+    "RANK_M": ("RANK_M", "RANK_M_CUR", "RANK_MROC"),
+    "RANK_M_CUR": ("RANK_M_CUR", "RANK_M", "RANK_MROC"),
+    "RANK_MROC": ("RANK_MROC", "RANK_M_CUR", "RANK_M"),
+    # Year aliases
+    "RANK_Y": ("RANK_Y", "RANK_YROC"),
+    "RANK_YROC": ("RANK_YROC", "RANK_Y"),
+    # Week aliases
+    "RANK_W": ("RANK_W", "RANK_WROC"),
+    "RANK_WROC": ("RANK_WROC", "RANK_W"),
+    # Day aliases
+    "RANK_D": ("RANK_D", "RANK_DROC"),
+    "RANK_DROC": ("RANK_DROC", "RANK_D"),
+    # Quarter aliases
+    "RANK_Q": ("RANK_Q", "RANK_Q_CUR", "RANK_QROC"),
+    "RANK_Q_CUR": ("RANK_Q_CUR", "RANK_Q", "RANK_QROC"),
+    "RANK_QROC": ("RANK_QROC", "RANK_Q_CUR", "RANK_Q"),
+    # Half-Year aliases
+    "RANK_H": ("RANK_H", "RANK_H_CUR", "RANK_HROC"),
+    "RANK_H_CUR": ("RANK_H_CUR", "RANK_H", "RANK_HROC"),
+    "RANK_HROC": ("RANK_HROC", "RANK_H_CUR", "RANK_H"),
+    # Multi-year / YTD aliases
+    "RANK_YTD": ("RANK_YTD", "YTD"),
+    "RANK_3M": ("RANK_3M", "3M"),
+    "RANK_3Y": ("RANK_3Y", "3Y"),
+    "RANK_4Y": ("RANK_4Y", "4Y"),
+    "RANK_5Y": ("RANK_5Y", "5Y"),
+    "RANK_AVG5Y": ("RANK_AVG5Y", "AVG5Y"),
+}
+
 KNOWN_LABELS: dict[str, str] = {
     "symbol": "Symbol",
     "name": "Name",

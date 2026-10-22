@@ -75,6 +75,44 @@ def _resolve_precalculated_field(rule: FilterRuleSpec, sample_rec: Mapping[str, 
 _extract_dynamic_ema_rules = _extract_dynamic_rules
 
 
+def _freeze_param_val(val: Any) -> Any:
+    """Recursively convert parameter values into an immutable, deterministically sorted representation."""
+    if isinstance(val, Mapping):
+        return tuple(sorted((str(k), _freeze_param_val(v)) for k, v in val.items()))
+    elif isinstance(val, (list, tuple)):
+        return tuple(_freeze_param_val(x) for x in val)
+    elif isinstance(val, (set, frozenset)):
+        return tuple(sorted(_freeze_param_val(x) for x in val))
+    return val
+
+
+def _extract_calc_param_key(rule: FilterRuleSpec) -> tuple[tuple[str, Any], ...]:
+    """Extract and normalize all calculation-affecting parameters from a dynamic filter rule."""
+    c_type = (rule.condition_type or "").lower()
+    p_dict = dict(rule.params) if rule.params else {}
+    # Remove metadata that only affects filter qualification, not calculation
+    p_dict.pop("state", None)
+    p_dict.pop("timeframe", None)
+
+    if c_type == "ema":
+        p1 = rule.p1 if rule.p1 is not None else p_dict.get("p1")
+        p2 = rule.p2 if rule.p2 is not None else p_dict.get("p2")
+        if p1 is not None:
+            p_dict["p1"] = int(p1)
+        if p2 is not None:
+            p_dict["p2"] = int(p2)
+    elif c_type == "roc":
+        period = getattr(rule, "period", None) or p_dict.get("period")
+        if period is None and getattr(rule, "field", None):
+            f = str(rule.field).strip()
+            if f.upper().startswith("ROC_"):
+                period = f[4:].lower()
+        if period is not None:
+            p_dict["period"] = str(period).lower()
+
+    return tuple(sorted((str(k), _freeze_param_val(v)) for k, v in p_dict.items()))
+
+
 
 class PipelineOrchestrator:
     """Coordinates execution across Registry capabilities and screening contract stages.
@@ -373,15 +411,19 @@ class PipelineOrchestrator:
                 rules_to_calculate: list[tuple[FilterRuleSpec, str, Optional[str], str]] = []
                 for rule in dynamic_rules:
                     tf = (rule.timeframe or (rule.params.get("timeframe") if rule.params else None) or "D").strip().upper()
-                    p1 = rule.p1 if rule.p1 is not None else (rule.params.get("p1") if rule.params else None)
-                    p2 = rule.p2 if rule.p2 is not None else (rule.params.get("p2") if rule.params else None)
+                    param_key = _extract_calc_param_key(rule)
+                    p_dict = dict(param_key)
+                    c_type_upper = (rule.condition_type or "").upper()
 
-                    if p1 is not None and p2 is not None:
-                        default_key = f"{rule.condition_type.upper()}_{tf}_{p1}_{p2}"
-                    elif p1 is not None:
-                        default_key = f"{rule.condition_type.upper()}_{tf}_{p1}"
+                    if rule.condition_type == "ema" and "p1" in p_dict and "p2" in p_dict:
+                        default_key = f"EMA_{tf}_{p_dict['p1']}_{p_dict['p2']}"
+                    elif rule.condition_type == "roc" and "period" in p_dict:
+                        default_key = f"ROC_{tf}_{p_dict['period']}"
+                    elif param_key:
+                        param_str = "_".join(f"{k}_{v}" for k, v in param_key if isinstance(v, (str, int, float, bool)))
+                        default_key = f"{c_type_upper}_{tf}_{param_str}"
                     else:
-                        default_key = f"{rule.condition_type.upper()}_{tf}"
+                        default_key = f"{c_type_upper}_{tf}"
 
                     field_key = rule.field or default_key
                     canonical_key = default_key if (rule.field and rule.field != default_key) else None
@@ -461,6 +503,12 @@ class PipelineOrchestrator:
                 total_calcs = total_rules * total_symbols
                 completed_calcs = 0
 
+                # Request-scoped execution caches with bounded lifetime
+                req_ctx_cache: dict[tuple[str, str, str], MarketContext] = {}
+                req_series_cache: dict[tuple[str, str], Any] = {}
+                req_ema_cache: dict[tuple[int, int], Any] = {}
+                req_sig_cache: dict[tuple[str, str, str, str, tuple[tuple[str, Any], ...]], Any] = {}
+
                 for rule, field_key, canonical_key, tf in rules_to_calculate:
                     calc_module = self._find_calc_module_for_condition(rule.condition_type)
                     if calc_module is None:
@@ -479,6 +527,7 @@ class PipelineOrchestrator:
                         rule_label = f"{rule.condition_type.upper()} {tf}"
 
                     stage_name = f"calculating_{rule.condition_type}"
+                    param_key = _extract_calc_param_key(rule)
 
                     for s_idx, sym in enumerate(symbols):
                         if cancel_check and (s_idx % 25 == 0 or s_idx == total_symbols - 1):
@@ -508,26 +557,46 @@ class PipelineOrchestrator:
                                 enriched_records[sym][canonical_key] = val
                             continue
 
+                        sym_rec = records.get(sym, {})
+                        sym_ex = (sym_rec.get("exchange") or ex or "NSE").strip().upper()
+
                         daily_b = daily_bars_map.get(sym)
                         if daily_b:
-                            market_ctx = self.timeframe_engine.build_context(
-                                symbol=sym,
-                                exchange=ex,
-                                daily_bars=daily_b,
-                                timeframes=[tf, "D"],
-                            )
-                            calc_ctx = CalculationContext(market_context=market_ctx)
-                            try:
-                                sig = calc_module.calculate_dynamic(symbol=sym, rule=rule, context=calc_ctx)
-                            except Exception as calc_err:
-                                logger.error(
-                                    "execute_screen: calculation module '%s' failed for symbol '%s' and rule %s: %s",
-                                    getattr(calc_module, "name", type(calc_module).__name__),
-                                    sym,
-                                    rule,
-                                    calc_err,
+                            sig_key = (sym_ex, sym, rule.condition_type, tf, param_key)
+                            if sig_key in req_sig_cache:
+                                sig = req_sig_cache[sig_key]
+                            else:
+                                ctx_key = (sym_ex, sym, tf)
+                                market_ctx = req_ctx_cache.get(ctx_key)
+                                if market_ctx is None:
+                                    target_tfs = ["D"] if tf == "D" else [tf, "D"]
+                                    market_ctx = self.timeframe_engine.build_context(
+                                        symbol=sym,
+                                        exchange=sym_ex,
+                                        daily_bars=daily_b,
+                                        timeframes=target_tfs,
+                                    )
+                                    req_ctx_cache[ctx_key] = market_ctx
+
+                                calc_ctx = CalculationContext(
+                                    market_context=market_ctx,
+                                    parameters={
+                                        "series_cache": req_series_cache,
+                                        "ema_cache": req_ema_cache,
+                                    },
                                 )
-                                raise
+                                try:
+                                    sig = calc_module.calculate_dynamic(symbol=sym, rule=rule, context=calc_ctx)
+                                    req_sig_cache[sig_key] = sig
+                                except Exception as calc_err:
+                                    logger.error(
+                                        "execute_screen: calculation module '%s' failed for symbol '%s' and rule %s: %s",
+                                        getattr(calc_module, "name", type(calc_module).__name__),
+                                        sym,
+                                        rule,
+                                        calc_err,
+                                    )
+                                    raise
                         else:
                             sig = None
 

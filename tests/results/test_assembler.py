@@ -237,3 +237,73 @@ def test_assembler_ema_up_count_column_definition():
     assert col_def.is_numeric is True
     assert col_def.format_string == "0"
     assert col_def.label == "EMA UP Count"
+
+
+def test_assembler_rank_column_alias_resolution():
+    """Verify ResultAssembler resolves ranking column aliases when requested column name differs from injected cohort key."""
+    assembler = ResultAssembler()
+    records = [
+        {
+            "symbol": "STOCK_A",
+            "price": 100.0,
+            "RANK_M_CUR": 1,
+            "RANK_YROC": 5,
+            "RANK_WROC": 2,
+            "RANK_DROC": 10,
+            "RANK_Q_CUR": 3,
+            "RANK_H_CUR": 4,
+        },
+        {
+            "symbol": "STOCK_B",
+            "price": 200.0,
+            "RANK_M": 7,
+            "RANK_Y": 8,
+            "RANK_W": 9,
+            "RANK_D": 11,
+            "RANK_Q": 12,
+            "RANK_H": 13,
+        },
+    ]
+
+    # Test forward alias resolution: UI requests RANK_M, RANK_Y, etc., record has RANK_M_CUR, RANK_YROC, etc.
+    cols_forward = ["symbol", "price", "RANK_M", "RANK_Y", "RANK_W", "RANK_D", "RANK_Q", "RANK_H"]
+    payload_forward = assembler.assemble(records=records[:1], columns=cols_forward)
+    row_f = payload_forward.rows[0]
+    assert row_f["symbol"] == "STOCK_A"
+    assert row_f["price"] == 100.0
+    assert row_f["RANK_M"] == 1
+    assert row_f["RANK_Y"] == 5
+    assert row_f["RANK_W"] == 2
+    assert row_f["RANK_D"] == 10
+    assert row_f["RANK_Q"] == 3
+    assert row_f["RANK_H"] == 4
+
+    # Test reverse alias resolution: UI requests RANK_M_CUR, RANK_YROC, etc., record has RANK_M, RANK_Y, etc.
+    cols_reverse = ["symbol", "price", "RANK_M_CUR", "RANK_YROC", "RANK_WROC", "RANK_DROC", "RANK_Q_CUR", "RANK_H_CUR"]
+    payload_reverse = assembler.assemble(records=records[1:], columns=cols_reverse)
+    row_r = payload_reverse.rows[0]
+    assert row_r["symbol"] == "STOCK_B"
+    assert row_r["price"] == 200.0
+    assert row_r["RANK_M_CUR"] == 7
+    assert row_r["RANK_YROC"] == 8
+    assert row_r["RANK_WROC"] == 9
+    assert row_r["RANK_DROC"] == 11
+    assert row_r["RANK_Q_CUR"] == 12
+    assert row_r["RANK_H_CUR"] == 13
+
+
+def test_assembler_rank_column_alias_preserves_none_and_nan():
+    """Verify alias lookup preserves None when all candidate aliases are missing or NaN."""
+    assembler = ResultAssembler()
+    records = [
+        {"symbol": "STOCK_MISSING", "price": 50.0},
+        {"symbol": "STOCK_NONE", "price": 60.0, "RANK_M_CUR": None},
+        {"symbol": "STOCK_NAN", "price": 70.0, "RANK_M_CUR": float("nan")},
+    ]
+
+    payload = assembler.assemble(records=records, columns=["symbol", "price", "RANK_M"])
+    assert len(payload.rows) == 3
+    assert payload.rows[0]["RANK_M"] is None
+    assert payload.rows[1]["RANK_M"] is None
+    assert payload.rows[2]["RANK_M"] is None
+
