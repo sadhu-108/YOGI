@@ -70,7 +70,8 @@
 - Supports `D` $\to$ `W`, `M`, `Q`, `H`, `Y` using verified frequency aliases (`D=None`, `W="W"`, `M="ME"`, `Q="QE"`, `H="2QE"`, `Y="YE"`).
 - Preserves OHLCV aggregation semantics (Open=first, High=max, Low=min, Close=last, Volume=sum), period-end boundary timestamps, None volume preservation, chronological pre-sorting, deterministic deduplication (last occurrence), and incomplete period aggregation without padding.
 - `cache.py`: Thread-safe bounded in-memory LRU cache (`TimeframeCache`) for derived higher-order timeframe bars (`W, M, Q, H, Y`) with deterministic revision fingerprinting (`compute_bars_fingerprint`) and contract-based invalidation (`invalidate_cache`, `clear_cache`).
-- Verified by `tests/timeframe/test_synthesis.py` (25/25) and `tests/timeframe/test_timeframe_cache.py` (10/10) (42/42 tests passing across `tests/timeframe/`).
+- Prompt 1 Daily Resampling Bypass: Eliminates redundant sorting and deduplication for canonical daily bars in `TimeframeEngine.build_context()`, `build_market_context()`, and `resample()`. Validates strict chronological monotonicity in O(N) with zero-allocation tuple reuse, while seamlessly falling back to `resample_bars('D')` for mutable sequences or unsorted inputs.
+- Verified by `tests/timeframe/test_synthesis.py` (25/25), `tests/timeframe/test_timeframe_cache.py` (14/14), `tests/timeframe/test_daily_resample_bypass.py` (10/10), and `tests/timeframe/test_half_year_policy.py` (7/7) (56/56 tests passing across `tests/timeframe/`).
 
 ### Step 8: Calculation Modules (`src/yogi/calculation/`)
 - Analytical calculation modules satisfying `ICalcModule` registered in `RegistryHub.calculations` ([ADR-008](decisions.md#adr-008-calculation-engine-modularization--four-mathematical-pillars)):

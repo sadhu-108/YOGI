@@ -187,6 +187,37 @@ def resample_bars(
     return tuple(result)
 
 
+def _is_normalized_daily_tuple(bars: Sequence[MarketBar]) -> bool:
+    """Determine whether a sequence of MarketBar objects is already an immutable, strictly chronological tuple with no duplicates."""
+    if not isinstance(bars, tuple):
+        return False
+    n = len(bars)
+    if n <= 1:
+        return True
+    if bars[0].timestamp >= bars[-1].timestamp:
+        return False
+    it = iter(bars)
+    prev_ts = next(it).timestamp
+    for b in it:
+        curr_ts = b.timestamp
+        if prev_ts >= curr_ts:
+            return False
+        prev_ts = curr_ts
+    return True
+
+
+def _resolve_daily_bars(
+    bars: Sequence[MarketBar],
+    half_year_policy: str = "prototype",
+) -> tuple[MarketBar, ...]:
+    """Resolve canonical daily MarketBar sequence directly when proven safe, falling back to resample_bars."""
+    if not bars:
+        return ()
+    if _is_normalized_daily_tuple(bars):
+        return bars  # type: ignore[return-value]
+    return resample_bars(bars, "D", half_year_policy=half_year_policy)
+
+
 def build_market_context(
     symbol: str,
     exchange: str,
@@ -204,16 +235,24 @@ def build_market_context(
     bars_by_tf: dict[str, Sequence[MarketBar]] = {}
     for tf in target_tfs:
         tf_key = _normalize_timeframe_key(tf)
-        bars_by_tf[tf_key] = resample_bars(
-            daily_bars, tf_key, half_year_policy=half_year_policy
-        )
+        if tf_key == "D":
+            bars_by_tf[tf_key] = _resolve_daily_bars(
+                daily_bars, half_year_policy=half_year_policy
+            )
+        else:
+            bars_by_tf[tf_key] = resample_bars(
+                daily_bars, tf_key, half_year_policy=half_year_policy
+            )
 
     latest_ts: Optional[datetime] = None
     if as_of is not None:
         latest_ts = as_of
     elif daily_bars:
-        # Determine latest timestamp from sorted daily bars
-        latest_ts = max(b.timestamp for b in daily_bars)
+        d_bars = bars_by_tf.get("D")
+        if d_bars:
+            latest_ts = d_bars[-1].timestamp
+        else:
+            latest_ts = max(b.timestamp for b in daily_bars)
 
     return MarketContext(
         symbol=symbol,
@@ -280,6 +319,9 @@ class TimeframeEngine(ITimeframeEngine):
         ex = (exchange or "NSE").strip().upper()
         sym = (symbol or "").strip().upper()
 
+        if tf_key == "D":
+            return _resolve_daily_bars(bars, half_year_policy=policy)
+
         if self._cache is not None and sym and bars:
             cached = self._cache.get(ex, sym, tf_key, bars, half_year_policy=policy)
             if cached is not None:
@@ -315,9 +357,8 @@ class TimeframeEngine(ITimeframeEngine):
         for tf in target_tfs:
             tf_key = _normalize_timeframe_key(tf)
             if tf_key == "D":
-                # Daily timeframe returns canonical sorted/deduplicated bars directly without caching
-                clean = resample_bars(daily_bars, "D", half_year_policy=policy)
-                bars_by_tf[tf_key] = clean
+                # Daily timeframe returns canonical sorted/deduplicated bars directly, bypassing resample_bars when safe
+                bars_by_tf[tf_key] = _resolve_daily_bars(daily_bars, half_year_policy=policy)
                 continue
 
             if self._cache is not None and daily_bars:
@@ -335,7 +376,11 @@ class TimeframeEngine(ITimeframeEngine):
         if as_of is not None:
             latest_ts = as_of
         elif daily_bars:
-            latest_ts = max(b.timestamp for b in daily_bars)
+            d_bars = bars_by_tf.get("D")
+            if d_bars:
+                latest_ts = d_bars[-1].timestamp
+            else:
+                latest_ts = max(b.timestamp for b in daily_bars)
 
         return MarketContext(
             symbol=symbol,
