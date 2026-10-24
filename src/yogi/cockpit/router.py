@@ -894,9 +894,10 @@ def get_candles(
 async def get_race(
     symbols: Optional[str] = Query(default=None, description="Comma-separated symbols, or empty for leaders"),
     anchor: str = Query(default="2021-01-01", description="Fixed anchor date YYYY-MM-DD"),
-    top: int = Query(default=15, ge=1, le=50, description="Maximum number of leader lines"),
-    metric: str = Query(default="SPA_A21", description="Ranking metric for auto-leader selection"),
+    top: int = Query(default=10, ge=1, le=50, description="Maximum number of leader lines"),
+    metric: Optional[str] = Query(default=None, description="Ranking metric for auto-leader selection (defaults to anchor year SPA_Ayy)"),
     exchange: Optional[str] = Query(default=None, description="Exchange code (defaults to engine configuration)"),
+    timeframe: str = Query(default="W", pattern="^(D|W|M|Q|H|Y)$", description="Candle timeframe (D, W, M, Q, H, Y)"),
     app_state: AppState = Depends(get_app_state),
 ) -> RaceResponseOut:
     """Return sprint race time-series curves week-by-week from fixed anchor date."""
@@ -914,6 +915,7 @@ async def get_race(
             top=top,
             metric=metric,
             exchange=target_exchange,
+            timeframe=timeframe,
         )
     except DataProviderError as exc:
         logger.error("Provider error during race curve generation: %s", exc)

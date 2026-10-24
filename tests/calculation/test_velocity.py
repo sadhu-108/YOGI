@@ -144,3 +144,28 @@ def test_velocity_calculator_empty_context():
     assert m["S4"] is None
     assert m["ACCEL_L"] is None
     assert m["SPR_M"] is None
+
+
+def test_calculate_anchored_curve_all_timeframes():
+    """Verify calculate_anchored_curve produces correct monotonic point counts across all 6 timeframes."""
+    idx = pd.date_range("2020-01-01", "2022-12-31", freq="D")
+    s = pd.Series([100.0 * (1.001 ** i) for i in range(len(idx))], index=idx)
+
+    pts_d = calculate_anchored_curve(s, "2021-01-01", timeframe="D")
+    pts_w = calculate_anchored_curve(s, "2021-01-01", timeframe="W")
+    pts_m = calculate_anchored_curve(s, "2021-01-01", timeframe="M")
+    pts_q = calculate_anchored_curve(s, "2021-01-01", timeframe="Q")
+    pts_h = calculate_anchored_curve(s, "2021-01-01", timeframe="H")
+    pts_y = calculate_anchored_curve(s, "2021-01-01", timeframe="Y")
+
+    assert len(pts_d) > len(pts_w) > len(pts_m) > len(pts_q) > len(pts_h) > len(pts_y) > 0
+    assert pts_d[0]["time"] == "2021-01-01"
+    assert pts_y[-1]["time"] == "2022-12-31"
+
+
+def test_calculate_anchored_curve_unsupported_timeframe():
+    """Verify calculate_anchored_curve raises ValueError on unsupported timeframe code."""
+    idx = pd.date_range("2020-01-01", "2023-01-01", freq="D")
+    s = pd.Series(100.0, index=idx)
+    with pytest.raises(ValueError, match="Unsupported timeframe"):
+        calculate_anchored_curve(s, "2021-01-01", timeframe="INVALID")

@@ -253,6 +253,10 @@ class AppState:
             self._chart_service.bars_cache = self._bars_cache
         self._race_service = race_service
         self._race_service_injected: bool = race_service is not None
+        if self._race_service is not None and getattr(self._race_service, "bars_cache", None) is None and self._bars_cache is not None:
+            self._race_service.bars_cache = self._bars_cache
+        if self._race_service is not None and getattr(self._race_service, "timeframe_engine", None) is None and hasattr(self._orchestrator, "timeframe_engine"):
+            self._race_service.timeframe_engine = self._orchestrator.timeframe_engine
         if initial_dataset or provider is not None:
             self._init_presentation_services(provider=provider)
 
@@ -374,6 +378,8 @@ class AppState:
                 self._race_service = RaceDataService(
                     provider=resolved_provider,
                     dataset_provider=lambda: self._dataset,
+                    bars_cache=self._bars_cache,
+                    timeframe_engine=self._orchestrator.timeframe_engine,
                 )
 
     @property
@@ -411,6 +417,8 @@ class AppState:
         if self._race_service_injected:
             return self._race_service
         if self._race_service is not None:
+            if getattr(self._race_service, "bars_cache", None) is None and self._bars_cache is not None:
+                self._race_service.bars_cache = self._bars_cache
             provider_key = self._config.provider
             if self._orchestrator.registry.providers.has(provider_key):
                 resolved_provider = self._orchestrator.registry.providers.get(provider_key)
@@ -820,6 +828,8 @@ class AppState:
                 self._race_service = RaceDataService(
                     provider=resolved_provider,
                     dataset_provider=lambda: self._dataset,
+                    bars_cache=self._bars_cache,
+                    timeframe_engine=self._orchestrator.timeframe_engine,
                 )
 
     def _load_user_presets(self) -> None:

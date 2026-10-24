@@ -2662,6 +2662,17 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     document.addEventListener('keydown', (e) => {
         if (e.key === 'Escape') {
+            const raceModal = document.getElementById('raceModal');
+            if (raceModal && raceModal.style.display !== 'none') {
+                const raceCloseBtn = document.getElementById('raceCloseBtn');
+                if (raceCloseBtn) {
+                    raceCloseBtn.click();
+                } else {
+                    raceModal.style.display = 'none';
+                }
+                return;
+            }
+
             const overlaysMenu = document.getElementById('overlaysMenu');
             const panelsMenu = document.getElementById('panelsMenu');
             const isOverlayOpen = overlaysMenu && overlaysMenu.style.display !== 'none';
@@ -3835,18 +3846,138 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // D. Sprint Race Visualizer & Leaderboard
     const raceModal = document.getElementById('raceModal');
-    const closeRaceBtn = document.getElementById('closeRaceBtn');
     const openRaceBtn = document.getElementById('openRaceBtn');
+    const raceCloseBtn = document.getElementById('raceCloseBtn');
+    const raceDoneBtn = document.getElementById('raceDoneBtn');
     const runRaceBtn = document.getElementById('runRaceBtn');
+    const raceTfButtons = document.getElementById('raceTfButtons');
+    const raceAnchorSelect = document.getElementById('raceAnchorSelect');
     let currentRaceLines = [];
+    let activeRaceTimeframe = 'W';
+    let raceChartInstance = null;
+    let raceChartResizeHandler = null;
+
+    function renderLightweightRaceChart(lines) {
+        const container = document.getElementById('raceChartContainer');
+        if (!container) return;
+
+        if (raceChartInstance) {
+            try {
+                raceChartInstance.remove();
+            } catch (err) {
+                console.warn('Error removing previous race chart:', err);
+            }
+            raceChartInstance = null;
+        }
+        if (raceChartResizeHandler) {
+            window.removeEventListener('resize', raceChartResizeHandler);
+            raceChartResizeHandler = null;
+        }
+
+        container.innerHTML = '';
+
+        if (!lines || lines.length === 0) {
+            container.innerHTML = '<div class="empty-state" style="padding-top: 150px; text-align: center; color: var(--text-muted, #8b949e);">No trajectory data returned for selected criteria.</div>';
+            return;
+        }
+
+        const colors = [
+            '#238636', '#58a6ff', '#f0883e', '#d29922', '#a371f7',
+            '#3fb950', '#79c0ff', '#ff7b72', '#ec6547', '#e3b341',
+            '#bc8cff', '#56d364', '#2f81f7', '#da3633', '#1f6feb'
+        ];
+
+        const width = container.clientWidth || 800;
+        const height = container.clientHeight || 420;
+
+        const chart = window.LightweightCharts.createChart(container, {
+            width: width,
+            height: height,
+            layout: {
+                background: { color: '#0d1117' },
+                textColor: '#c9d1d9',
+            },
+            grid: {
+                vertLines: { color: '#21262d' },
+                horzLines: { color: '#21262d' },
+            },
+            crosshair: {
+                mode: window.LightweightCharts.CrosshairMode.Normal,
+            },
+            rightPriceScale: {
+                borderColor: '#30363d',
+                scaleMargins: {
+                    top: 0.1,
+                    bottom: 0.1,
+                },
+            },
+            timeScale: {
+                borderColor: '#30363d',
+                timeVisible: false,
+                secondsVisible: false,
+            },
+            localization: {
+                priceFormatter: (val) => `${val >= 0 ? '+' : ''}${val.toFixed(1)}%`,
+            },
+        });
+
+        raceChartInstance = chart;
+
+        raceChartResizeHandler = () => {
+            if (raceChartInstance && container) {
+                raceChartInstance.applyOptions({ width: container.clientWidth });
+            }
+        };
+        window.addEventListener('resize', raceChartResizeHandler);
+
+        let firstSeries = null;
+        lines.forEach((line, idx) => {
+            const color = colors[idx % colors.length];
+            const series = chart.addLineSeries({
+                color: color,
+                lineWidth: 2,
+                title: `${line.symbol} (${line.final >= 0 ? '+' : ''}${line.final.toFixed(1)}%)`,
+                priceFormat: {
+                    type: 'custom',
+                    formatter: (val) => `${val >= 0 ? '+' : ''}${val.toFixed(1)}%`,
+                },
+            });
+
+            if (!firstSeries) firstSeries = series;
+
+            const rawPoints = (line.points || []).slice().sort((a, b) => a.time.localeCompare(b.time));
+            const seenTimes = new Set();
+            const cleanPoints = [];
+            for (const pt of rawPoints) {
+                if (!seenTimes.has(pt.time)) {
+                    seenTimes.add(pt.time);
+                    cleanPoints.push({ time: pt.time, value: pt.value });
+                }
+            }
+            series.setData(cleanPoints);
+        });
+
+        if (firstSeries && typeof firstSeries.createPriceLine === 'function') {
+            firstSeries.createPriceLine({
+                price: 0,
+                color: 'rgba(139, 148, 158, 0.6)',
+                lineWidth: 1,
+                lineStyle: window.LightweightCharts.LineStyle ? window.LightweightCharts.LineStyle.Dashed : 2,
+                axisLabelVisible: true,
+                title: '0.0%',
+            });
+        }
+
+        chart.timeScale().fitContent();
+    }
 
     function renderRaceChart(lines) {
         const canvas = document.getElementById('raceChartCanvas');
         if (!canvas) return;
         const ctx = canvas.getContext('2d');
-        const container = canvas.parentElement;
+        const container = document.getElementById('raceChartContainer') || canvas.parentElement;
         const dpr = window.devicePixelRatio || 1;
-        const width = container.clientWidth || 800;
+        const width = (container ? container.clientWidth : 800) || 800;
         const height = 400;
 
         canvas.width = width * dpr;
@@ -3865,6 +3996,11 @@ document.addEventListener('DOMContentLoaded', async () => {
             return;
         }
 
+        if (window.LightweightCharts && document.getElementById('raceChartContainer')) {
+            renderLightweightRaceChart(lines);
+            return;
+        }
+
         const colors = [
             '#238636', '#58a6ff', '#f0883e', '#d29922', '#a371f7',
             '#3fb950', '#79c0ff', '#ff7b72', '#ec6547', '#e3b341',
@@ -3874,7 +4010,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         let minVal = 0;
         let maxVal = 10;
         const allTimes = new Set();
-
         lines.forEach(line => {
             (line.points || []).forEach(pt => {
                 allTimes.add(pt.time);
@@ -3889,11 +4024,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         const padRight = 120;
         const chartW = width - padLeft - padRight;
         const chartH = height - padTop - padBottom;
-
         const valRange = (maxVal - minVal) || 1;
         const yZero = padTop + chartH * (maxVal / valRange);
 
-        // Draw grid lines & Y-axis labels
         ctx.strokeStyle = '#30363d';
         ctx.fillStyle = '#8b949e';
         ctx.font = '11px monospace';
@@ -3911,7 +4044,6 @@ document.addEventListener('DOMContentLoaded', async () => {
             ctx.fillText(`${v >= 0 ? '+' : ''}${v.toFixed(0)}%`, padLeft - 8, y + 4);
         }
 
-        // Highlight zero baseline if within range
         if (minVal <= 0 && maxVal >= 0) {
             ctx.strokeStyle = '#6e7681';
             ctx.lineWidth = 1.5;
@@ -3926,7 +4058,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         sortedTimes.forEach((t, idx) => timeIndexMap.set(t, idx));
         const numTimes = sortedTimes.length;
 
-        // Draw trajectories
         lines.forEach((line, lineIdx) => {
             const color = colors[lineIdx % colors.length];
             const pts = (line.points || []).filter(p => timeIndexMap.has(p.time)).sort((a, b) => a.time.localeCompare(b.time));
@@ -3945,7 +4076,6 @@ document.addEventListener('DOMContentLoaded', async () => {
             });
             ctx.stroke();
 
-            // Label at endpoint
             const lastPt = pts[pts.length - 1];
             const lastTIdx = timeIndexMap.get(lastPt.time);
             const endX = padLeft + (chartW * (lastTIdx / Math.max(1, numTimes - 1)));
@@ -3957,7 +4087,6 @@ document.addEventListener('DOMContentLoaded', async () => {
             ctx.fillText(` ${line.symbol} (${lastPt.value >= 0 ? '+' : ''}${lastPt.value.toFixed(1)}%)`, endX + 4, endY + 4);
         });
 
-        // X-axis date labels
         if (numTimes > 0) {
             ctx.fillStyle = '#8b949e';
             ctx.font = '10px monospace';
@@ -3973,32 +4102,34 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     }
 
-    async function executeRace() {
+        async function executeRace() {
         const anchor = document.getElementById('raceAnchorSelect')?.value || '2021-01-01';
-        const top = parseInt(document.getElementById('raceTopInput')?.value, 10) || 15;
+        const top = parseInt(document.getElementById('raceTopInput')?.value, 10) || 10;
         const symbolsInput = (document.getElementById('raceSymbolsInput')?.value || '').trim();
         const runBtn = document.getElementById('runRaceBtn');
         const boardEl = document.getElementById('raceLeaderboardContainer');
+        const overlay = document.getElementById('raceLoadingOverlay');
 
-        let metric = 'SPA_A21';
-        if (anchor.includes('2022')) metric = 'SPA_A22';
-        else if (anchor.includes('2023')) metric = 'SPA_A23';
-        else if (anchor.includes('2024')) metric = 'SPA_A24';
-        else if (anchor.includes('2025')) metric = 'SPA_A25';
-        else if (anchor.includes('2026')) metric = 'SPA_A26';
+        let metric = null;
+        const metricSelect = document.getElementById('raceMetricSelect');
+        if (metricSelect && metricSelect.value) {
+            metric = metricSelect.value;
+        }
 
         try {
             if (runBtn) {
                 runBtn.disabled = true;
                 runBtn.textContent = 'Running...';
             }
+            if (overlay) overlay.style.display = 'flex';
             if (boardEl) boardEl.innerHTML = '<div class="empty-state">Computing trajectory curves...</div>';
 
             const res = await API.getRace({
                 symbols: symbolsInput || undefined,
                 anchor: anchor,
                 top: top,
-                metric: metric,
+                metric: metric || undefined,
+                timeframe: activeRaceTimeframe,
             });
 
             currentRaceLines = res.lines || [];
@@ -4007,14 +4138,17 @@ document.addEventListener('DOMContentLoaded', async () => {
             // Render Leaderboard Table
             if (boardEl) {
                 if (currentRaceLines.length === 0) {
-                    boardEl.innerHTML = '<div class="empty-state">No leaderboard entries found for specified criteria.</div>';
+                    const noteMsg = res.note ? ` (${res.note})` : '';
+                    boardEl.innerHTML = `<div class="empty-state">No leaderboard entries found for specified criteria${noteMsg}.</div>`;
                 } else {
+                    const esc = (s) => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
                     boardEl.innerHTML = `
                         <table class="race-table">
                             <thead>
                                 <tr>
                                     <th>Rank</th>
                                     <th>Symbol</th>
+                                    <th>Company Name</th>
                                     <th>Trajectory Cumulative Gain</th>
                                     <th>Data Points</th>
                                 </tr>
@@ -4023,11 +4157,12 @@ document.addEventListener('DOMContentLoaded', async () => {
                                 ${currentRaceLines.map((l, idx) => `
                                     <tr>
                                         <td><strong>#${idx + 1}</strong></td>
-                                        <td><strong>${l.symbol}</strong></td>
+                                        <td><strong>${esc(l.symbol)}</strong></td>
+                                        <td>${esc(l.label || l.symbol)}</td>
                                         <td class="${l.final >= 0 ? 'val-positive' : 'val-negative'}">
                                             <strong>${l.final >= 0 ? '+' : ''}${l.final.toFixed(1)}%</strong>
                                         </td>
-                                        <td>${(l.points || []).length} wks</td>
+                                        <td>${(l.points || []).length} ${activeRaceTimeframe}</td>
                                     </tr>
                                 `).join('')}
                             </tbody>
@@ -4039,32 +4174,99 @@ document.addEventListener('DOMContentLoaded', async () => {
             showToast(`Race failed: ${err.message}`, 'error');
             if (boardEl) boardEl.innerHTML = `<div class="empty-state" style="color: var(--accent-red-bright);">Race error: ${err.message}</div>`;
         } finally {
+            if (overlay) overlay.style.display = 'none';
             if (runBtn) {
                 runBtn.disabled = false;
-                runBtn.textContent = '🏁 Run Race';
+                runBtn.textContent = 'Run Race';
             }
         }
     }
 
-    if (openRaceBtn) {
-        openRaceBtn.addEventListener('click', () => {
-            if (raceModal) raceModal.style.display = 'flex';
-            // Prepopulate symbols input if table has filtered symbols and symbols input is empty
-            const symInput = document.getElementById('raceSymbolsInput');
-            if (symInput && !symInput.value && table && table.displayRows) {
-                const rows = table.displayRows;
-                if (rows && rows.length > 0 && rows.length <= 15) {
-                    symInput.value = rows.map(r => r.symbol).join(', ');
+    // Timeframe selector buttons
+    if (raceTfButtons) {
+        raceTfButtons.querySelectorAll('button[data-tf]').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const targetTf = e.target.getAttribute('data-tf');
+                if (!targetTf || targetTf === activeRaceTimeframe) return;
+                activeRaceTimeframe = targetTf;
+                raceTfButtons.querySelectorAll('button[data-tf]').forEach(b => {
+                    b.classList.remove('active', 'btn-primary');
+                    b.classList.add('btn-outline-secondary');
+                });
+                e.target.classList.add('active', 'btn-primary');
+                e.target.classList.remove('btn-outline-secondary');
+                executeRace();
+            });
+        });
+    }
+
+    // Anchor Date selection
+    if (raceAnchorSelect) {
+        raceAnchorSelect.addEventListener('change', () => {
+            const anchor = raceAnchorSelect.value;
+            const metricSelect = document.getElementById('raceMetricSelect');
+            if (metricSelect) {
+                const yr = anchor.substring(2, 4);
+                const optVal = `SPA_A${yr}`;
+                let found = false;
+                for (let i = 0; i < metricSelect.options.length; i++) {
+                    if (metricSelect.options[i].value === optVal) {
+                        metricSelect.selectedIndex = i;
+                        found = true;
+                        break;
+                    }
+                }
+                if (!found) {
+                    const newOpt = document.createElement('option');
+                    newOpt.value = optVal;
+                    newOpt.textContent = `${optVal} (Sprint from 20${yr})`;
+                    metricSelect.insertBefore(newOpt, metricSelect.firstChild);
+                    metricSelect.selectedIndex = 0;
                 }
             }
             executeRace();
         });
     }
 
-    if (closeRaceBtn) {
-        closeRaceBtn.addEventListener('click', () => {
-            if (raceModal) raceModal.style.display = 'none';
+    if (openRaceBtn) {
+        openRaceBtn.addEventListener('click', () => {
+            if (raceModal) raceModal.style.display = 'flex';
+            setTimeout(() => {
+                if (raceChartInstance) {
+                    const c = document.getElementById('raceChartContainer');
+                    if (c) raceChartInstance.applyOptions({ width: c.clientWidth });
+                    raceChartInstance.timeScale().fitContent();
+                }
+            }, 50);
+            executeRace();
         });
+    }
+
+    const handleRaceClose = () => {
+        if (raceModal) raceModal.style.display = 'none';
+        if (raceChartInstance) {
+            try {
+                raceChartInstance.remove();
+            } catch (err) {
+                console.warn('Error removing race chart on close:', err);
+            }
+            raceChartInstance = null;
+        }
+        if (raceChartResizeHandler) {
+            window.removeEventListener('resize', raceChartResizeHandler);
+            raceChartResizeHandler = null;
+        }
+    };
+
+    if (raceCloseBtn) {
+        raceCloseBtn.addEventListener('click', handleRaceClose);
+    }
+    if (raceDoneBtn) {
+        raceDoneBtn.addEventListener('click', handleRaceClose);
+    }
+    const legacyCloseRaceBtn = document.getElementById('closeRaceBtn');
+    if (legacyCloseRaceBtn) {
+        legacyCloseRaceBtn.addEventListener('click', handleRaceClose);
     }
 
     if (runRaceBtn) {
@@ -4076,7 +4278,11 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (m) {
             m.addEventListener('click', (e) => {
                 if (e.target === m) {
-                    m.style.display = 'none';
+                    if (m === raceModal) {
+                        handleRaceClose();
+                    } else {
+                        m.style.display = 'none';
+                    }
                 }
             });
         }

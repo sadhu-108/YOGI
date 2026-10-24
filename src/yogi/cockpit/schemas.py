@@ -724,6 +724,7 @@ class RaceResponseOut(BaseModel):
     lines: Sequence[RaceLineOut]
     asked: int
     note: str = ""
+    timeframe: str = "W"
 
 
 class SystemStatusOut(BaseModel):

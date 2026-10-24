@@ -117,7 +117,28 @@ def resample_bars(
     closes = [b.close for b in clean_bars]
     volumes = [b.volume for b in clean_bars]
 
-    has_volume = any(v is not None for v in volumes)
+    # Inspect volume values to optimize aggregation:
+    # - If all values are None/NaN, volume column is omitted and result volumes remain None.
+    # - If any values are missing (None or NaN), track valid volume counts (_vol_valid)
+    #   so built-in Cython "sum" can be used while strictly preserving min_count=1 semantics
+    #   (groups with only missing values yield None, not 0.0, and 0.0 is preserved).
+    # - If all values are valid numeric floats, built-in Cython "sum" is used directly.
+    has_volume = False
+    has_missing_volume = False
+    clean_volumes: list[float] = []
+
+    for v in volumes:
+        if v is None:
+            has_missing_volume = True
+            clean_volumes.append(float("nan"))
+        else:
+            vf = float(v)
+            if vf != vf:  # math.isnan check
+                has_missing_volume = True
+                clean_volumes.append(vf)
+            else:
+                has_volume = True
+                clean_volumes.append(vf)
 
     data: dict[str, Any] = {
         "open": opens,
@@ -125,23 +146,21 @@ def resample_bars(
         "low": lows,
         "close": closes,
     }
-    if has_volume:
-        data["volume"] = [
-            float(v) if (v is not None and not pd.isna(v)) else float("nan")
-            for v in volumes
-        ]
-
-    df = pd.DataFrame(data, index=pd.DatetimeIndex(timestamps))
-
-    # 3. Apply standard OHLCV aggregation
     agg: dict[str, Any] = {
         "open": "first",
         "high": "max",
         "low": "min",
         "close": "last",
     }
+
     if has_volume:
-        agg["volume"] = lambda s: s.sum(min_count=1)
+        data["volume"] = clean_volumes
+        agg["volume"] = "sum"
+        if has_missing_volume:
+            data["_vol_valid"] = [0 if (v != v) else 1 for v in clean_volumes]
+            agg["_vol_valid"] = "sum"
+
+    df = pd.DataFrame(data, index=pd.DatetimeIndex(timestamps))
 
     # Resample and drop empty periods (no trading days in period)
     if tf_key == "H" and half_year_policy == "calendar":
@@ -162,6 +181,9 @@ def resample_bars(
     res_lows = res["low"].values
     res_closes = res["close"].values
     res_volumes = res["volume"].values if has_volume else None
+    res_vol_valid = (
+        res["_vol_valid"].values if (has_volume and has_missing_volume) else None
+    )
 
     result: list[MarketBar] = []
     n = len(res)
@@ -169,9 +191,12 @@ def resample_bars(
         bar_ts = _to_naive_datetime(res_index[i])
         vol: Optional[float] = None
         if res_volumes is not None:
-            v_val = res_volumes[i]
-            if not pd.isna(v_val):
-                vol = float(v_val)
+            if res_vol_valid is not None and res_vol_valid[i] == 0:
+                vol = None
+            else:
+                v_val = res_volumes[i]
+                if not pd.isna(v_val):
+                    vol = float(v_val)
 
         result.append(
             MarketBar(

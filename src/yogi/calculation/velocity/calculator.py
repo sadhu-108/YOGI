@@ -145,27 +145,74 @@ def calculate_anchored_curve(
     close: pd.Series,
     anchor_date: str,
     weekly: bool = True,
+    timeframe: Optional[str] = None,
 ) -> list[dict[str, Any]]:
-    """The race line: cumulative % return from fixed anchor date, week-by-week.
+    """The race line: cumulative % return from fixed anchor date across requested timeframe.
 
     Preserves verified prototype semantics from formulas.py:anchored_curve:
     - Base price is the last available close strictly prior to anchor_date.
     - If stock listed after anchor_date or base price <= 0, returns empty list [].
-    - Weekly points are resampled from weekly close (last trading day of week).
+    - Resampling is applied according to timeframe ('D', 'W', 'M', 'Q', 'H', 'Y').
     - Returns list of {"time": "YYYY-MM-DD", "value": cumulative_pct_return}.
     """
-    c = close.dropna()
-    if len(c) == 0:
+    raw = close.dropna()
+    if len(raw) == 0:
         return []
-    if weekly:
-        c = c.resample("W").last().dropna()
+
+    tf = (
+        str(timeframe).strip().upper()
+        if timeframe is not None
+        else ("W" if weekly else "D")
+    )
+
+    if tf == "D":
+        c = raw
+    elif tf == "W":
+        c = raw.resample("W").last().dropna()
+    elif tf == "M":
+        try:
+            c = raw.resample("ME").last().dropna()
+        except ValueError:
+            c = raw.resample("M").last().dropna()
+    elif tf == "Q":
+        try:
+            c = raw.resample("QE").last().dropna()
+        except ValueError:
+            c = raw.resample("Q").last().dropna()
+    elif tf == "H":
+        def _to_half_end(ts: Any) -> pd.Timestamp:
+            pdt = pd.to_datetime(ts)
+            return (
+                pd.Timestamp(year=pdt.year, month=6, day=30)
+                if pdt.month <= 6
+                else pd.Timestamp(year=pdt.year, month=12, day=31)
+            )
+
+        half_ends = raw.index.map(_to_half_end)
+        c = raw.groupby(half_ends).last().dropna().sort_index()
+    elif tf == "Y":
+        try:
+            c = raw.resample("YE").last().dropna()
+        except ValueError:
+            c = raw.resample("Y").last().dropna()
+    else:
+        raise ValueError(
+            f"Unsupported timeframe '{tf}'. Supported timeframes: ('D', 'W', 'M', 'Q', 'H', 'Y')"
+        )
+
     a = pd.Timestamp(anchor_date)
     before = c[c.index < a]
     if len(before) == 0:
-        return []
-    base = float(before.iloc[-1])
+        raw_before = raw[raw.index < a]
+        if len(raw_before) == 0:
+            return []
+        base = float(raw_before.iloc[-1])
+    else:
+        base = float(before.iloc[-1])
+
     if base <= 0:
         return []
+
     run = c[c.index >= a]
     return [
         {

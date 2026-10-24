@@ -211,8 +211,9 @@ const API = {
         return await res.json();
     },
 
-    async getRace({ symbols = null, anchor = '2021-01-01', top = 15, metric = 'SPA_A21', exchange = null } = {}) {
-        let url = `/api/race?anchor=${encodeURIComponent(anchor)}&top=${top}&metric=${encodeURIComponent(metric)}`;
+    async getRace({ symbols = null, anchor = '2021-01-01', top = 10, metric = null, exchange = null, timeframe = 'W' } = {}) {
+        let url = `/api/race?anchor=${encodeURIComponent(anchor)}&top=${top}&timeframe=${encodeURIComponent(timeframe)}`;
+        if (metric) url += `&metric=${encodeURIComponent(metric)}`;
         if (symbols) url += `&symbols=${encodeURIComponent(symbols)}`;
         if (exchange) url += `&exchange=${encodeURIComponent(exchange)}`;
         const res = await fetch(url);
